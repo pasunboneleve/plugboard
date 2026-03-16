@@ -14,6 +14,7 @@ use crate::exchange::Exchange;
 pub struct OutcomeTopics {
     pub success: String,
     pub failure: String,
+    // Timeout follows the original topic by default to keep v1 runner setup small.
     pub timeout: String,
 }
 
@@ -28,6 +29,7 @@ pub struct RunnerConfig {
 }
 
 impl RunnerConfig {
+    // v1 keeps timeout topic derivation implicit: "<watched topic>.timed_out".
     pub fn new(
         topic: impl Into<String>,
         success_topic: impl Into<String>,
@@ -344,5 +346,18 @@ mod tests {
 
         assert_eq!(follow_up.topic, "code.generate.timed_out");
         assert!(follow_up.body.contains("timed out"));
+    }
+
+    #[test]
+    fn runner_config_derives_timeout_topic_from_watched_topic() {
+        let config = RunnerConfig::new(
+            "code.generate",
+            "code.generated",
+            "code.generate.failed",
+            5,
+            vec!["cat".into()],
+        );
+
+        assert_eq!(config.outcome_topics.timeout, "code.generate.timed_out");
     }
 }
