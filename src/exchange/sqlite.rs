@@ -385,6 +385,36 @@ mod tests {
     }
 
     #[test]
+    fn fail_and_timeout_transitions_record_completion_timestamp() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+
+        exchange
+            .publish(NewMessage::new("code.generate", "generate"))
+            .unwrap();
+        exchange
+            .publish(NewMessage::new("code.generate", "generate again"))
+            .unwrap();
+
+        let (_, failed_claim) = exchange
+            .claim_next("code.generate", "runner-1", 60)
+            .unwrap()
+            .unwrap();
+        let (_, timed_out_claim) = exchange
+            .claim_next("code.generate", "runner-1", 60)
+            .unwrap()
+            .unwrap();
+
+        let failed = exchange.fail_claim(&failed_claim.id).unwrap();
+        assert_eq!(failed.status, ClaimStatus::Failed);
+        assert!(failed.completed_at.is_some());
+
+        let timed_out = exchange.timeout_claim(&timed_out_claim.id).unwrap();
+        assert_eq!(timed_out.status, ClaimStatus::TimedOut);
+        assert!(timed_out.completed_at.is_some());
+    }
+
+    #[test]
     fn publish_with_missing_parent_fails() {
         let exchange = SqliteExchange::open_memory().unwrap();
         exchange.init().unwrap();

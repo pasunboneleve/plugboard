@@ -191,18 +191,24 @@ pub fn build_follow_up_message(
     config: &RunnerConfig,
     result: &CommandResult,
 ) -> NewMessage {
+    let mut follow_up = NewMessage {
+        topic: String::new(),
+        body: String::new(),
+        parent_id: Some(message.id.clone()),
+        conversation_id: Some(message.conversation_id.clone()),
+        producer: Some(config.runner_name.clone()),
+        metadata_json: None,
+    };
+
     match result {
         CommandResult::Success {
             stdout,
             stderr,
             exit_code,
-        } => NewMessage {
-            topic: config.outcome_topics.success.clone(),
-            body: stdout.clone(),
-            parent_id: Some(message.id.clone()),
-            conversation_id: Some(message.conversation_id.clone()),
-            producer: Some(config.runner_name.clone()),
-            metadata_json: Some(
+        } => {
+            follow_up.topic = config.outcome_topics.success.clone();
+            follow_up.body = stdout.clone();
+            follow_up.metadata_json = Some(
                 json!({
                     "stdout": stdout,
                     "stderr": stderr,
@@ -210,14 +216,15 @@ pub fn build_follow_up_message(
                     "status": "completed",
                 })
                 .to_string(),
-            ),
-        },
+            );
+        }
         CommandResult::Failed {
             stdout,
             stderr,
             exit_code,
         } => {
-            let body = if stderr.is_empty() {
+            follow_up.topic = config.outcome_topics.failure.clone();
+            follow_up.body = if stderr.is_empty() {
                 if stdout.is_empty() {
                     format!("command exited with code {exit_code}")
                 } else {
@@ -226,48 +233,36 @@ pub fn build_follow_up_message(
             } else {
                 stderr.clone()
             };
-
-            NewMessage {
-                topic: config.outcome_topics.failure.clone(),
-                body,
-                parent_id: Some(message.id.clone()),
-                conversation_id: Some(message.conversation_id.clone()),
-                producer: Some(config.runner_name.clone()),
-                metadata_json: Some(
-                    json!({
-                        "stdout": stdout,
-                        "stderr": stderr,
-                        "exit_code": exit_code,
-                        "status": "failed",
-                    })
-                    .to_string(),
-                ),
-            }
+            follow_up.metadata_json = Some(
+                json!({
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exit_code": exit_code,
+                    "status": "failed",
+                })
+                .to_string(),
+            );
         }
         CommandResult::TimedOut { stdout, stderr } => {
+            follow_up.topic = config.outcome_topics.timeout.clone();
             let mut body = format!("command timed out after {} seconds", config.timeout_seconds);
             if !stderr.is_empty() {
                 body.push('\n');
                 body.push_str(stderr);
             }
-
-            NewMessage {
-                topic: config.outcome_topics.timeout.clone(),
-                body,
-                parent_id: Some(message.id.clone()),
-                conversation_id: Some(message.conversation_id.clone()),
-                producer: Some(config.runner_name.clone()),
-                metadata_json: Some(
-                    json!({
-                        "stdout": stdout,
-                        "stderr": stderr,
-                        "status": "timed_out",
-                    })
-                    .to_string(),
-                ),
-            }
+            follow_up.body = body;
+            follow_up.metadata_json = Some(
+                json!({
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "status": "timed_out",
+                })
+                .to_string(),
+            );
         }
     }
+
+    follow_up
 }
 
 #[cfg(test)]
