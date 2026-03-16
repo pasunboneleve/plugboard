@@ -3,3 +3,7 @@
 # Added by cargo
 
 /target
+
+# Don't persist state
+
+.plugboard/
