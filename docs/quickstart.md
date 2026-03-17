@@ -55,21 +55,10 @@ The repository also includes a deterministic example plugin binary
 named `example-review-plugin`. It reads the claimed message from
 `stdin`, writes a review-style response to `stdout`, and exits.
 
-With the project built and `target/debug` on your `PATH`, run:
+For the exact command sequence, see
+[Write a Worker Plugin](howto/write-a-worker-plugin.md).
 
-```bash
-plugboard publish review.request "Check timeout handling"
-
-timeout 2 plugboard run \
-  --topic review.request \
-  --success-topic review.done \
-  --failure-topic review.failed \
-  -- example-review-plugin
-
-plugboard read --topic review.done
-```
-
-You should see a `review.done` message whose body starts with:
+You should see a `review.done` message whose body start like this:
 
 ```text
 Review status: ok
