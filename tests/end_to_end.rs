@@ -161,15 +161,15 @@ fn gemini_plugin_runs_through_worker_host() {
         &fake_gemini,
         r#"#!/bin/sh
 stdin_contents=$(cat)
-if [ -n "$stdin_contents" ]; then
-  printf 'stdin should be empty' >&2
+if [ "$stdin_contents" != "Review this Rust code for timeout bugs" ]; then
+  printf 'unexpected stdin: %s' "$stdin_contents" >&2
   exit 1
 fi
 if [ "$1" != "--prompt" ]; then
   printf 'missing prompt flag' >&2
   exit 1
 fi
-if [ "$2" != "Review this Rust code for timeout bugs" ]; then
+if [ "$2" != "Reply to the message provided on stdin." ]; then
   printf 'unexpected prompt: %s' "$2" >&2
   exit 1
 fi
