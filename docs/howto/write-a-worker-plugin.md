@@ -113,10 +113,7 @@ The repository also includes a real Gemini adapter binary at
 It uses the installed Gemini CLI in non-interactive JSON mode:
 
 * reads the claimed message body from `stdin`
-* invokes `gemini` once for that message with a fixed `--prompt`
-  instruction to force headless mode
-* relies on Gemini CLI's own behavior of prepending piped `stdin`
-  content to the `--prompt` text
+* passes that same message body to `gemini --prompt ...`
 * extracts the response text from Gemini's JSON output
 * writes the final response to `stdout`
 * exits nonzero if Gemini returns an error
@@ -131,10 +128,9 @@ Prerequisites for the real adapter:
   * `GOOGLE_GENAI_USE_GCA=true`
   * or an authenticated Gemini CLI config in `~/.gemini/settings.json`
 * optional model override via `GEMINI_PLUGIN_MODEL`
-* optional instruction override via `GEMINI_PLUGIN_PROMPT`
 
-In local shell testing, plain headless Gemini commands such as
-`printf 'how much is 5+4?' | gemini -p "Reply briefly to this message."`
-returned normally. The stricter JSON plus `--approval-mode plan` path
-still needs to be verified against your local Gemini CLI version and
-configuration.
+The simplest headless Gemini check is:
+
+`gemini --prompt 'how much is 5+4?'`
+
+That confirms your local CLI can run a one-shot prompt and exit.
