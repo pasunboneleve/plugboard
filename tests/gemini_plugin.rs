@@ -18,19 +18,23 @@ fn gemini_plugin_emits_response_from_json_output() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
 stdin_contents=$(cat)
-if [ -n "$stdin_contents" ]; then
-  printf 'stdin should be empty' >&2
+if [ "$stdin_contents" != "prompt body" ]; then
+  printf 'unexpected stdin: %s' "$stdin_contents" >&2
   exit 1
 fi
-if [ "$1" != "--prompt" ]; then
-  printf 'missing prompt flag' >&2
+if [ "$1" != "--output-format" ]; then
+  printf 'missing output-format flag' >&2
   exit 1
 fi
-if [ "$2" != "prompt body" ]; then
-  printf 'unexpected prompt: %s' "$2" >&2
+if [ "$2" != "stream-json" ]; then
+  printf 'unexpected output format: %s' "$2" >&2
   exit 1
 fi
-printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
+if [ "$3" != "--approval-mode" ] || [ "$4" != "plan" ]; then
+  printf 'unexpected approval mode args: %s %s' "$3" "$4" >&2
+  exit 1
+fi
+printf '{"type":"result","result":"Gemini says hello"}\n'
 "#,
     );
     let binary = env!("CARGO_BIN_EXE_gemini-plugin");
@@ -56,15 +60,11 @@ fn gemini_plugin_uses_message_body_as_prompt() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
 stdin_contents=$(cat)
-if [ -n "$stdin_contents" ]; then
-  printf 'stdin should be empty' >&2
+if [ "$stdin_contents" != "compute 2+2" ]; then
+  printf 'unexpected stdin: %s' "$stdin_contents" >&2
   exit 1
 fi
-if [ "$2" != "compute 2+2" ]; then
-  printf 'unexpected prompt: %s' "$2" >&2
-  exit 1
-fi
-printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
+printf '{"type":"assistant","message":{"content":"Gemini says hello"}}\n'
 "#,
     );
     let binary = env!("CARGO_BIN_EXE_gemini-plugin");
@@ -89,7 +89,8 @@ printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
 fn gemini_plugin_reports_json_error_message() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
-printf '{ "session_id": "session-1", "error": { "type": "Error", "message": "Gemini auth failed", "code": 1 } }'
+cat >/dev/null
+printf '{ "error": { "type": "Error", "message": "Gemini auth failed", "code": 1 } }'
 exit 1
 "#,
     );
