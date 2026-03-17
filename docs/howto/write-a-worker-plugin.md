@@ -57,6 +57,9 @@ it reads the message body from `stdin`, prints a review-style response
 to `stdout`, and exits successfully. That makes it a good reference
 for the minimum useful worker plugin shape.
 
+That binary is a demo plugin only. It proves the worker contract but
+does not call Gemini or any other external backend.
+
 ## When You Need an Adapter
 
 Some tools are not good worker plugins by themselves:
@@ -101,3 +104,27 @@ execution, and success follow-up publication.
 
 For an agent-style request/reply narrative built on the same pattern,
 see [Codex to Gemini Workflow](codex-to-gemini.md).
+
+## Real Gemini Adapter
+
+The repository also includes a real Gemini adapter binary at
+`src/bin/gemini-plugin.rs`.
+
+It uses the installed Gemini CLI in non-interactive JSON mode:
+
+* reads the claimed message body from `stdin`
+* invokes `gemini` once for that message
+* extracts the response text from Gemini's JSON output
+* writes the final response to `stdout`
+* exits nonzero if Gemini returns an error
+
+Prerequisites for the real adapter:
+
+* Gemini CLI installed on `PATH` as `gemini`, or set
+  `GEMINI_PLUGIN_CLI` to the executable path
+* one working Gemini auth method:
+  * `GEMINI_API_KEY`
+  * `GOOGLE_GENAI_USE_VERTEXAI=true`
+  * `GOOGLE_GENAI_USE_GCA=true`
+  * or an authenticated Gemini CLI config in `~/.gemini/settings.json`
+* optional model override via `GEMINI_PLUGIN_MODEL`

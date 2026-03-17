@@ -67,6 +67,9 @@ The repository also includes a deterministic example plugin binary
 named `example-review-plugin`. It reads the claimed message from
 `stdin`, writes a review-style response to `stdout`, and exits.
 
+This is a toy/demo plugin for local testing. It is not a Gemini
+integration.
+
 For the exact command sequence, see
 [Write a Worker Plugin](howto/write-a-worker-plugin.md).
 
@@ -76,3 +79,6 @@ You should see a `review.done` message whose body starts like this:
 Review status: ok
 Reviewer: example-review-plugin
 ```
+
+For a real Gemini-backed request/reply flow, see
+[Codex to Gemini Workflow](howto/codex-to-gemini.md).

@@ -18,8 +18,9 @@ messages using simple stdin/stdout contracts.
 - [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
 - [Codex to Gemini Workflow](docs/howto/codex-to-gemini.md)
 
-The repository also includes a deterministic example worker plugin for
-local end-to-end demos.
+The repository includes both a deterministic demo plugin for local
+end-to-end testing and a real Gemini adapter plugin for actual Gemini
+request/reply workflows.
 
 Three-layer model
 -----------------
