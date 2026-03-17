@@ -6,7 +6,10 @@ use crate::plugin::command::CommandPlugin;
 use crate::worker::{WorkerConfig, WorkerHost};
 
 #[derive(Debug, Args)]
-#[command(about = "Run a long-lived worker host that claims messages and executes a plugin")]
+#[command(
+    about = "Host a long-running worker that listens on a topic",
+    long_about = "Host a long-running worker on a topic.\n\nThe worker polls the configured topic, claims one message at a time, writes the claimed message body to the configured backend on stdin, captures stdout as success output, captures failure output from stderr or a non-zero exit, and publishes the follow-up message to the configured success or failure topic.\n\nThis command is intended for passive backends that read stdin, write stdout, and exit. Interactive tools usually need a wrapper or dedicated plugin before they fit this worker contract."
+)]
 pub struct RunArgs {
     #[arg(long, help = "Topic to poll for work")]
     pub topic: String,
@@ -21,7 +24,7 @@ pub struct RunArgs {
     #[arg(
         last = true,
         required = true,
-        help = "Command plugin to execute after --"
+        help = "Backend command to execute after --; it should read stdin, write stdout, and exit"
     )]
     pub command: Vec<String>,
 }

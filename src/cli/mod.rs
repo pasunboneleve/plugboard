@@ -12,9 +12,18 @@ use crate::exchange::Exchange;
 use crate::exchange::sqlite::SqliteExchange;
 
 #[derive(Debug, Parser)]
-#[command(name = "plugboard", about = "A local textual message exchange")]
+#[command(
+    name = "plugboard",
+    about = "A local textual exchange built around topic-addressed messages",
+    long_about = "Plugboard is a local textual exchange built around topics.\n\nUse `publish` to send plain text to a topic, `read` to inspect messages already published to a topic or conversation, and `run` to host a long-running worker that listens on a topic and forwards each claimed message to a passive backend."
+)]
 pub struct Cli {
-    #[arg(long, global = true, default_value = ".plugboard/plugboard.db")]
+    #[arg(
+        long,
+        global = true,
+        default_value = ".plugboard/plugboard.db",
+        help = "SQLite database path for the local message exchange"
+    )]
     pub database: PathBuf,
     #[command(subcommand)]
     pub command: Commands,
@@ -22,9 +31,12 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    #[command(about = "Publish a plain-text message to a topic")]
     Publish(publish::PublishArgs),
+    #[command(about = "Read messages that were already published to a topic or conversation")]
     Read(read::ReadArgs),
     Inspect(inspect::InspectArgs),
+    #[command(about = "Host a long-running worker that listens on a topic")]
     Run(run::RunArgs),
 }
 

@@ -4,10 +4,22 @@ use crate::error::Result;
 use crate::exchange::Exchange;
 
 #[derive(Debug, Args)]
+#[command(
+    about = "Read messages already published to the exchange",
+    long_about = "Read messages that were already published to the exchange.\n\nUse `--topic` to read all messages for a topic or `--conversation` to read a threaded conversation. Output is tab-separated as: created_at, topic, body.\n\nMessages are listed in stored order so the output reflects the conversation or topic history."
+)]
 pub struct ReadArgs {
-    #[arg(long, conflicts_with = "conversation")]
+    #[arg(
+        long,
+        conflicts_with = "conversation",
+        help = "Read all messages published to a topic"
+    )]
     pub topic: Option<String>,
-    #[arg(long, conflicts_with = "topic")]
+    #[arg(
+        long,
+        conflicts_with = "topic",
+        help = "Read all messages in a conversation thread"
+    )]
     pub conversation: Option<String>,
 }
 
