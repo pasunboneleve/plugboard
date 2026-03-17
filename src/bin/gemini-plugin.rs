@@ -1,0 +1,191 @@
+use std::env;
+use std::io::{self, Read, Write};
+use std::process::{Command, ExitCode, Stdio};
+
+use serde::Deserialize;
+
+const DEFAULT_GEMINI_CLI: &str = "gemini";
+const DEFAULT_APPROVAL_MODE: &str = "plan";
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+struct GeminiError {
+    message: String,
+    #[serde(default)]
+    code: Option<i32>,
+    #[serde(default)]
+    r#type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+enum GeminiOutput {
+    Success {
+        session_id: String,
+        response: String,
+    },
+    Failure {
+        session_id: Option<String>,
+        error: GeminiError,
+    },
+}
+
+fn build_gemini_args(model: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "--prompt".to_string(),
+        String::new(),
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--approval-mode".to_string(),
+        DEFAULT_APPROVAL_MODE.to_string(),
+    ];
+
+    if let Some(model) = model {
+        args.push("--model".to_string());
+        args.push(model.to_string());
+    }
+
+    args
+}
+
+fn parse_gemini_output(stdout: &str) -> Result<GeminiOutput, serde_json::Error> {
+    serde_json::from_str(stdout)
+}
+
+fn render_error_message(stdout: &str, stderr: &str) -> String {
+    if let Ok(GeminiOutput::Failure { error, .. }) = parse_gemini_output(stdout) {
+        return error.message;
+    }
+
+    let stderr = stderr.trim();
+    if !stderr.is_empty() {
+        return stderr.to_string();
+    }
+
+    let stdout = stdout.trim();
+    if !stdout.is_empty() {
+        return stdout.to_string();
+    }
+
+    "gemini invocation failed without output".to_string()
+}
+
+fn main() -> ExitCode {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        return ExitCode::from(1);
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let mut input = String::new();
+    io::stdin().read_to_string(&mut input)?;
+
+    let gemini_cli =
+        env::var("GEMINI_PLUGIN_CLI").unwrap_or_else(|_| DEFAULT_GEMINI_CLI.to_string());
+    let gemini_model = env::var("GEMINI_PLUGIN_MODEL").ok();
+    let args = build_gemini_args(gemini_model.as_deref());
+
+    let mut child = Command::new(&gemini_cli)
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input.as_bytes())?;
+        drop(stdin);
+    }
+
+    let output = child.wait_with_output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+
+    if !output.status.success() {
+        return Err(render_error_message(&stdout, &stderr).into());
+    }
+
+    match parse_gemini_output(&stdout) {
+        Ok(GeminiOutput::Success { response, .. }) => {
+            print!("{response}");
+            Ok(())
+        }
+        Ok(GeminiOutput::Failure { error, .. }) => Err(error.message.into()),
+        Err(_) => {
+            print!("{stdout}");
+            Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GeminiOutput, build_gemini_args, parse_gemini_output, render_error_message};
+
+    #[test]
+    fn builds_non_interactive_json_args() {
+        assert_eq!(
+            build_gemini_args(None),
+            vec![
+                "--prompt",
+                "",
+                "--output-format",
+                "json",
+                "--approval-mode",
+                "plan",
+            ]
+        );
+    }
+
+    #[test]
+    fn appends_model_when_present() {
+        assert_eq!(
+            build_gemini_args(Some("gemini-2.5-flash")),
+            vec![
+                "--prompt",
+                "",
+                "--output-format",
+                "json",
+                "--approval-mode",
+                "plan",
+                "--model",
+                "gemini-2.5-flash",
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_success_payload() {
+        let payload = parse_gemini_output(
+            r#"{
+  "session_id": "session-1",
+  "response": "hello"
+}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            payload,
+            GeminiOutput::Success {
+                session_id: "session-1".into(),
+                response: "hello".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn prefers_json_error_message() {
+        let stdout = r#"{
+  "session_id": "session-1",
+  "error": {
+    "type": "Error",
+    "message": "auth failed",
+    "code": 1
+  }
+}"#;
+
+        assert_eq!(render_error_message(stdout, "ignored"), "auth failed");
+    }
+}
