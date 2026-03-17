@@ -3,6 +3,8 @@ use plugboard::exchange::Exchange;
 use plugboard::exchange::sqlite::SqliteExchange;
 use plugboard::plugin::command::CommandPlugin;
 use plugboard::worker::{RunOnceOutcome, WorkerConfig, WorkerHost};
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn runner_claims_executes_and_emits_follow_up() {
@@ -141,6 +143,65 @@ fn example_review_plugin_emits_deterministic_follow_up() {
             .body
             .contains("Input: Check timeout handling")
     );
+    assert_eq!(conversation[1].parent_id.as_deref(), Some(root.id.as_str()));
+
+    let claims = exchange.claims_for_message(&root.id).unwrap();
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].status, ClaimStatus::Completed);
+}
+
+#[test]
+fn gemini_plugin_runs_through_worker_host() {
+    let exchange = SqliteExchange::open_memory().unwrap();
+    exchange.init().unwrap();
+
+    let temp = tempfile::tempdir().unwrap();
+    let fake_gemini = temp.path().join("fake-gemini");
+    fs::write(
+        &fake_gemini,
+        r#"#!/bin/sh
+cat >/dev/null
+printf '{ "session_id": "session-1", "response": "Gemini worker reply" }'
+"#,
+    )
+    .unwrap();
+    let mut perms = fs::metadata(&fake_gemini).unwrap().permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&fake_gemini, perms).unwrap();
+
+    let root = exchange
+        .publish(NewMessage::new(
+            "gemini.review.request",
+            "Review this Rust code for timeout bugs",
+        ))
+        .unwrap();
+
+    let plugin = CommandPlugin::new(vec![
+        "env".into(),
+        format!("GEMINI_PLUGIN_CLI={}", fake_gemini.display()),
+        env!("CARGO_BIN_EXE_gemini-plugin").into(),
+    ])
+    .unwrap();
+    let runner = WorkerHost::new(
+        &exchange,
+        &plugin,
+        WorkerConfig::new(
+            "gemini.review.request",
+            "gemini.review.done",
+            "gemini.review.failed",
+            5,
+        ),
+    );
+
+    let outcome = runner.run_once().unwrap();
+    assert!(matches!(outcome, RunOnceOutcome::Handled { .. }));
+
+    let conversation = exchange
+        .read_by_conversation(&root.conversation_id)
+        .unwrap();
+    assert_eq!(conversation.len(), 2);
+    assert_eq!(conversation[1].topic, "gemini.review.done");
+    assert_eq!(conversation[1].body, "Gemini worker reply");
     assert_eq!(conversation[1].parent_id.as_deref(), Some(root.id.as_str()));
 
     let claims = exchange.claims_for_message(&root.id).unwrap();
