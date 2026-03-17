@@ -45,6 +45,15 @@ For the baseline command plugin, the child command must:
 An exit code of `0` is treated as success. A non-zero exit code is
 treated as failure and published to the configured failure topic.
 
+## Execution Model
+
+Workers are stateless. Each claimed message starts a fresh backend
+process. There is no shared memory between runs, and Plugboard does
+not maintain persistent sessions for the backend.
+
+This model works well for deterministic commands and API-based
+adapters that can accept one input, produce one output, and exit.
+
 Some tools, especially interactive CLIs, do not satisfy this contract.
 Those tools need a wrapper or dedicated plugin that turns them into a
 non-interactive command.

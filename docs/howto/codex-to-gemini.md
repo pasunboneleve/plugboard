@@ -56,6 +56,16 @@ The response proves the pattern:
 * the backend can write a result to stdout
 * Plugboard can publish the reply to a follow-up topic for Codex to read
 
+## Execution Model
+
+This workflow is stateless. Each message triggers a fresh backend
+process, with no shared memory between runs and no persistent session
+managed by Plugboard.
+
+That is why the example uses a passive backend that reads stdin,
+writes stdout, and exits. A real Gemini adapter should preserve the
+same per-message execution model.
+
 ## Choosing Topics
 
 Plugboard does not route by built-in agent identity. Topic names

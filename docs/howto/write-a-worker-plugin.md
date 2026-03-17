@@ -28,6 +28,16 @@ And returns one of:
 Topic selection and message claiming stay in the worker host. The
 plugin only handles execution.
 
+## Execution Model
+
+Workers are stateless per-message executors. Each claimed message
+starts a fresh backend process, so there is no shared memory between
+runs and no persistent session managed by Plugboard.
+
+That makes the model a good fit for deterministic commands and
+API-based adapters that can read one input, write one result, and
+exit.
+
 ## Command Plugin
 
 The current baseline plugin is the command plugin:
