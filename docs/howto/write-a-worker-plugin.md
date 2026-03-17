@@ -41,6 +41,12 @@ The current baseline plugin is the command plugin:
 This stdin to stdout contract is the default execution model because
 it keeps the worker simple and Unix-like.
 
+The repository includes a small example command-style plugin at
+`src/bin/example-review-plugin.rs`. It is intentionally deterministic:
+it reads the message body from `stdin`, prints a review-style response
+to `stdout`, and exits successfully. That makes it a good reference
+for the minimum useful worker plugin shape.
+
 ## When You Need an Adapter
 
 Some tools are not good worker plugins by themselves:
@@ -61,3 +67,24 @@ Other plugin types can fit the same worker model:
 * API-based plugins using an LLM SDK or HTTP client
 * session-based plugins for long-lived tools
 * wrappers around external tools that need adaptation
+
+## Local Example Workflow
+
+After `cargo build`, you can run the example plugin through Plugboard:
+
+```bash
+export PATH="$PWD/target/debug:$PATH"
+
+plugboard publish review.request "Check timeout handling"
+
+timeout 2 plugboard run \
+  --topic review.request \
+  --success-topic review.done \
+  --failure-topic review.failed \
+  -- example-review-plugin
+
+plugboard read --topic review.done
+```
+
+This proves the full path: topic publication, worker claim, plugin
+execution, and success follow-up publication.

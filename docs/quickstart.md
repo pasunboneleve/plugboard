@@ -48,3 +48,30 @@ treated as failure and published to the configured failure topic.
 Some tools, especially interactive CLIs, do not satisfy this contract.
 Those tools need a wrapper or dedicated plugin that turns them into a
 non-interactive command.
+
+## Example Plugin Demo
+
+The repository also includes a deterministic example plugin binary
+named `example-review-plugin`. It reads the claimed message from
+`stdin`, writes a review-style response to `stdout`, and exits.
+
+With the project built and `target/debug` on your `PATH`, run:
+
+```bash
+plugboard publish review.request "Check timeout handling"
+
+timeout 2 plugboard run \
+  --topic review.request \
+  --success-topic review.done \
+  --failure-topic review.failed \
+  -- example-review-plugin
+
+plugboard read --topic review.done
+```
+
+You should see a `review.done` message whose body starts with:
+
+```text
+Review status: ok
+Reviewer: example-review-plugin
+```
