@@ -174,7 +174,8 @@ Example plugin types:
 
 - **wrapper**
   Adapts an awkward CLI such as `gemini` into a clean
-  non-interactive contract.
+  non-interactive contract, while still accepting the worker's message
+  body on `stdin`.
 
 - **session**
   A future stateful plugin model, not required in v1.

@@ -14,7 +14,10 @@ The example narrative is:
 
 This guide uses the real `gemini-plugin` adapter in this repository.
 That adapter shells out to the Gemini CLI once per message, keeps the
-stdin to stdout contract intact, and exits after each response.
+stdin to stdout contract intact, and exits after each response. It
+passes the Plugboard message body to Gemini on `stdin` while also
+supplying a fixed `--prompt` instruction so Gemini stays in headless
+mode.
 
 ## Prerequisites
 
@@ -25,7 +28,16 @@ adapter.
 
 If the workflow fails or hangs, verify that the Gemini CLI itself can
 complete a non-interactive request with your current auth and network
-setup before debugging Plugboard.
+setup before debugging Plugboard. A useful baseline is:
+
+```bash
+printf 'how much is 5+4?' | gemini -p "Reply briefly to this message."
+```
+
+That plain headless path returned normally in local shell testing. If
+your `gemini-plugin` worker still hangs, the next things to check are
+Gemini's JSON output mode and `--approval-mode plan` support in your
+installed CLI version.
 
 ## Runnable Example
 
@@ -65,7 +77,8 @@ The response proves the pattern:
 
 * Codex can send a request by publishing plain text to a topic
 * a Gemini-oriented worker can listen on that topic
-* the worker can forward the text to a passive backend over stdin
+* the worker can forward the text to Gemini over stdin
+* the adapter can add a fixed `--prompt` instruction for headless mode
 * the Gemini adapter can write the result to stdout
 * Plugboard can publish the reply to a follow-up topic for Codex to read
 
@@ -96,8 +109,9 @@ itself remains topic-based and agent-agnostic.
 ## Adapter Notes
 
 The `gemini-plugin` binary invokes Gemini in non-interactive JSON mode
-once per message and extracts the `response` field for Plugboard to
-publish.
+once per message, with the Plugboard message body kept on `stdin` and a
+fixed instruction passed through `--prompt`. It then extracts the
+`response` field for Plugboard to publish.
 
 If your preferred Gemini setup is interactive or long-lived, wrap it
 so the worker still sees the same non-interactive stdin to stdout
