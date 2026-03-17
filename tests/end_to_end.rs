@@ -104,3 +104,46 @@ fn runner_emits_timeout_follow_up_for_long_command() {
     assert_eq!(claims.len(), 1);
     assert_eq!(claims[0].status, ClaimStatus::TimedOut);
 }
+
+#[test]
+fn example_review_plugin_emits_deterministic_follow_up() {
+    let exchange = SqliteExchange::open_memory().unwrap();
+    exchange.init().unwrap();
+
+    let root = exchange
+        .publish(NewMessage::new("review.request", "Check timeout handling"))
+        .unwrap();
+
+    let plugin =
+        CommandPlugin::new(vec![env!("CARGO_BIN_EXE_example-review-plugin").into()]).unwrap();
+    let runner = WorkerHost::new(
+        &exchange,
+        &plugin,
+        WorkerConfig::new("review.request", "review.done", "review.failed", 5),
+    );
+
+    let outcome = runner.run_once().unwrap();
+    assert!(matches!(outcome, RunOnceOutcome::Handled { .. }));
+
+    let conversation = exchange
+        .read_by_conversation(&root.conversation_id)
+        .unwrap();
+    assert_eq!(conversation.len(), 2);
+    assert_eq!(conversation[1].topic, "review.done");
+    assert!(conversation[1].body.contains("Review status: ok"));
+    assert!(
+        conversation[1]
+            .body
+            .contains("Reviewer: example-review-plugin")
+    );
+    assert!(
+        conversation[1]
+            .body
+            .contains("Input: Check timeout handling")
+    );
+    assert_eq!(conversation[1].parent_id.as_deref(), Some(root.id.as_str()));
+
+    let claims = exchange.claims_for_message(&root.id).unwrap();
+    assert_eq!(claims.len(), 1);
+    assert_eq!(claims[0].status, ClaimStatus::Completed);
+}
