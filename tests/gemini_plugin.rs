@@ -18,15 +18,15 @@ fn gemini_plugin_emits_response_from_json_output() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
 stdin_contents=$(cat)
-if [ "$stdin_contents" != "prompt body" ]; then
-  printf 'unexpected stdin: %s' "$stdin_contents" >&2
+if [ -n "$stdin_contents" ]; then
+  printf 'stdin should be empty' >&2
   exit 1
 fi
 if [ "$1" != "--prompt" ]; then
   printf 'missing prompt flag' >&2
   exit 1
 fi
-if [ "$2" != "Reply to the message provided on stdin." ]; then
+if [ "$2" != "prompt body" ]; then
   printf 'unexpected prompt: %s' "$2" >&2
   exit 1
 fi
@@ -52,15 +52,15 @@ printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
 }
 
 #[test]
-fn gemini_plugin_allows_prompt_override() {
+fn gemini_plugin_uses_message_body_as_prompt() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
 stdin_contents=$(cat)
-if [ "$stdin_contents" != "prompt body" ]; then
-  printf 'unexpected stdin: %s' "$stdin_contents" >&2
+if [ -n "$stdin_contents" ]; then
+  printf 'stdin should be empty' >&2
   exit 1
 fi
-if [ "$2" != "Custom instruction" ]; then
+if [ "$2" != "compute 2+2" ]; then
   printf 'unexpected prompt: %s' "$2" >&2
   exit 1
 fi
@@ -71,13 +71,12 @@ printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
 
     let output = Command::new(binary)
         .env("GEMINI_PLUGIN_CLI", temp.path().join("fake-gemini"))
-        .env("GEMINI_PLUGIN_PROMPT", "Custom instruction")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .and_then(|mut child| {
-            child.stdin.take().unwrap().write_all(b"prompt body")?;
+            child.stdin.take().unwrap().write_all(b"compute 2+2")?;
             child.wait_with_output()
         })
         .unwrap();
