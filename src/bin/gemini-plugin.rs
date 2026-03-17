@@ -1,5 +1,5 @@
 use std::env;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::process::{Command, ExitCode, Stdio};
 
 use serde::Deserialize;
@@ -29,10 +29,14 @@ enum GeminiOutput {
     },
 }
 
-fn build_gemini_args(model: Option<&str>) -> Vec<String> {
+// Plugboard's worker contract feeds the claimed message body to this binary on stdin.
+// Gemini CLI behaves more reliably when that text becomes the explicit `-p/--prompt`
+// value, so this adapter reads stdin once, maps it into `--prompt`, and then runs
+// Gemini as a fresh one-shot process for that message.
+fn build_gemini_args(prompt: &str, model: Option<&str>) -> Vec<String> {
     let mut args = vec![
         "--prompt".to_string(),
-        String::new(),
+        prompt.to_string(),
         "--output-format".to_string(),
         "json".to_string(),
         "--approval-mode".to_string(),
@@ -79,27 +83,20 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut input = String::new();
-    io::stdin().read_to_string(&mut input)?;
+    let mut prompt = String::new();
+    io::stdin().read_to_string(&mut prompt)?;
 
     let gemini_cli =
         env::var("GEMINI_PLUGIN_CLI").unwrap_or_else(|_| DEFAULT_GEMINI_CLI.to_string());
     let gemini_model = env::var("GEMINI_PLUGIN_MODEL").ok();
-    let args = build_gemini_args(gemini_model.as_deref());
+    let args = build_gemini_args(&prompt, gemini_model.as_deref());
 
-    let mut child = Command::new(&gemini_cli)
+    let output = Command::new(&gemini_cli)
         .args(&args)
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .spawn()?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(input.as_bytes())?;
-        drop(stdin);
-    }
-
-    let output = child.wait_with_output()?;
+        .output()?;
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 
@@ -125,12 +122,12 @@ mod tests {
     use super::{GeminiOutput, build_gemini_args, parse_gemini_output, render_error_message};
 
     #[test]
-    fn builds_non_interactive_json_args() {
+    fn builds_non_interactive_json_args_from_prompt_body() {
         assert_eq!(
-            build_gemini_args(None),
+            build_gemini_args("prompt body", None),
             vec![
                 "--prompt",
-                "",
+                "prompt body",
                 "--output-format",
                 "json",
                 "--approval-mode",
@@ -142,10 +139,10 @@ mod tests {
     #[test]
     fn appends_model_when_present() {
         assert_eq!(
-            build_gemini_args(Some("gemini-2.5-flash")),
+            build_gemini_args("prompt body", Some("gemini-2.5-flash")),
             vec![
                 "--prompt",
-                "",
+                "prompt body",
                 "--output-format",
                 "json",
                 "--approval-mode",

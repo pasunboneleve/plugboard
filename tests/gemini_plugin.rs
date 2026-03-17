@@ -17,7 +17,19 @@ fn write_fake_gemini_script(body: &str) -> tempfile::TempDir {
 fn gemini_plugin_emits_response_from_json_output() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
-cat >/dev/null
+stdin_contents=$(cat)
+if [ -n "$stdin_contents" ]; then
+  printf 'stdin should be empty' >&2
+  exit 1
+fi
+if [ "$1" != "--prompt" ]; then
+  printf 'missing prompt flag' >&2
+  exit 1
+fi
+if [ "$2" != "prompt body" ]; then
+  printf 'unexpected prompt: %s' "$2" >&2
+  exit 1
+fi
 printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
 "#,
     );
@@ -43,7 +55,6 @@ printf '{ "session_id": "session-1", "response": "Gemini says hello" }'
 fn gemini_plugin_reports_json_error_message() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
-cat >/dev/null
 printf '{ "session_id": "session-1", "error": { "type": "Error", "message": "Gemini auth failed", "code": 1 } }'
 exit 1
 "#,
@@ -70,7 +81,6 @@ exit 1
 fn gemini_plugin_reports_raw_stderr_when_output_is_not_json() {
     let temp = write_fake_gemini_script(
         r#"#!/bin/sh
-cat >/dev/null
 printf 'gemini transport failed' >&2
 exit 1
 "#,

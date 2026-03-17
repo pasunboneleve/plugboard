@@ -160,7 +160,19 @@ fn gemini_plugin_runs_through_worker_host() {
     fs::write(
         &fake_gemini,
         r#"#!/bin/sh
-cat >/dev/null
+stdin_contents=$(cat)
+if [ -n "$stdin_contents" ]; then
+  printf 'stdin should be empty' >&2
+  exit 1
+fi
+if [ "$1" != "--prompt" ]; then
+  printf 'missing prompt flag' >&2
+  exit 1
+fi
+if [ "$2" != "Review this Rust code for timeout bugs" ]; then
+  printf 'unexpected prompt: %s' "$2" >&2
+  exit 1
+fi
 printf '{ "session_id": "session-1", "response": "Gemini worker reply" }'
 "#,
     )
