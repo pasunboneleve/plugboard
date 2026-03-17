@@ -1,45 +1,56 @@
 Plugboard
 =========
 
-**Plugboard** is a local textual message exchange for cooperating
-programs.
+**Plugboard** is a local textual exchange for cooperating programs.
 
-Plugboard provides a small local exchange where independent programs
-coordinate by publishing and consuming text. It does not define an
-agent framework, workflow DSL, or shared object model. Its purpose is
-to let separately-built tools cooperate through loose textual
-interfaces.
+It keeps the core small and Unix-like: publish text, read text, claim
+work, and append follow-up messages. Plugboard does not define agents,
+workflow graphs, or identity-based delivery. It routes interest by
+topic and leaves behaviour to processes outside the core.
 
-Programs interact with Plugboard by appending messages and consuming
-messages that match their interests. Each participant remains
-independent. The system acts as a **software switchboard** for
-cooperating processes.
+---
+
+Three-layer model
+-----------------
+
+Plugboard is easiest to understand as three layers:
+
+1. **Plugboard core exchange**
+   Stores messages, supports topic-based reads and claims, and records
+   follow-up messages and claim outcomes.
+
+2. **Worker host**
+   A long-running adapter process that polls topics, claims one
+   message at a time, executes work, and publishes success, failure,
+   or timeout follow-ups.
+
+3. **Plugins**
+   Execution backends used by the worker host. A plugin may wrap a
+   command-line tool, call an API, or adapt an awkward local tool into
+   a simple non-interactive contract.
+
+The core remains agnostic to who reads a message. Delivery is
+topic-based, not identity-based. Agent behaviour lives entirely in the
+worker host and its plugins.
 
 ---
 
 Why
 ---
 
-Many modern automation and AI systems rely on tightly coupled frameworks:
+Many automation and AI systems rely on tightly coupled frameworks:
 
 - shared SDKs
 - rigid schemas
 - centralized orchestration
 - strongly typed RPC between services
 
-These approaches couple tools together and make systems harder to evolve.
+These approaches couple tools together and make systems harder to
+evolve.
 
-Unix took a different path: small programs communicating through
-**text streams**. Tools could be composed without sharing internal
-structure.
-
-Plugboard applies a similar idea to cooperating programs:
-
-- programs remain independent
-- coordination happens through exchanged text
-- structure emerges through conventions rather than enforced APIs
-
-The exchange only manages message lifecycle. It does not attempt to understand program behaviour.
+Unix took a different path: small programs communicating through text.
+Plugboard applies that idea to asynchronous coordination between
+independent tools.
 
 ---
 
@@ -50,30 +61,29 @@ Design goals
   Designed to run on a single machine.
 
 - **Text-first**
-  Messages are textual. Programs interpret them independently.
+  Messages are textual. Participants decide how to interpret them.
 
 - **Minimal core**
-  The exchange manages message storage and delivery, not behaviour.
+  Plugboard manages message lifecycle, not agent semantics.
 
 - **Decoupled participants**
-  Programs do not need to share a framework or object model.
+  Tools do not need to share a framework or runtime.
 
 - **Inspectable system**
-  The message exchange should be easy to observe and reason about.
+  Users should be able to understand activity by reading messages and
+  claims.
 
 ---
 
 Non-goals
 ---------
 
-Plugboard intentionally avoids several common platform features.
-
 Plugboard is not:
 
 - an agent framework
 - a workflow orchestration engine
 - a typed RPC system
-- a vendor specific AI runtime
+- a vendor-specific AI runtime
 - a distributed task scheduler
 
 Programs remain ordinary processes outside the exchange.
@@ -83,96 +93,155 @@ Programs remain ordinary processes outside the exchange.
 Conceptual model
 ----------------
 
-Programs publish textual messages into the exchange. Other programs
-consume messages that match their interests.
+Messages are published into a local exchange. Worker hosts watch
+topics, claim matching messages, run plugins, and append follow-up
+messages.
 
-
-             ┌─────────────────────────┐
-             │        Plugboard        │
-             │   textual message bus   │
-             └───────────┬─────────────┘
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-   publishes         publishes        publishes
-        │                │                │
-        ▼                ▼                ▼
-  ┌──────────┐     ┌──────────┐     ┌──────────┐
-  │ program  │     │ program  │     │ program  │
-  │ planner  │     │ coder    │     │ reviewer │
-  └────┬─────┘     └────┬─────┘     └────┬─────┘
-       │                │                │
-       └──── consumes matching textual messages ────┘
+```text
+publisher -> Plugboard topic -> worker host -> plugin -> follow-up topic
+```
 
 The exchange manages:
 
 - message storage
-- message visibility
-- claiming and acknowledging work
+- topic-based visibility
+- atomic claiming
+- claim completion, failure, and timeout state
+- follow-up message history
 
-It does not define what the messages mean.
+It does not define what a reviewer, coder, planner, or agent is.
 
 ---
 
-Example message flow
---------------------
+Worker Model
+------------
 
-Program A publishes a request:
+The worker host is a long-running process.
 
-```
-topic: code.generate
+Its loop is intentionally small:
+
+1. claim one message for a configured topic
+2. if none exists, sleep briefly and try again
+3. execute a plugin for that message
+4. publish a success, failure, or timeout follow-up
+5. update the claim state
+
+V1 should process one message at a time.
+
+For simple command plugins, the worker uses a stdin/stdout contract:
+
+- message body is written to plugin stdin
+- stdin is then closed
+- stdout is captured as success output
+- stderr is captured for diagnostics
+- non-zero exit is treated as failure
+
+Each worker configuration also defines:
+
+- the watched topic
+- success topic
+- failure topic
+- timeout duration
+- optional worker name
+
+Timeouts publish to `<topic>.timed_out`.
+
+---
+
+Plugin Model
+------------
+
+A plugin defines the actual execution behaviour behind a worker.
+
+Conceptually, a plugin receives:
+
+- the input message body
+- selected message metadata
+- worker execution context such as timeout or plugin name
+
+And returns either:
+
+- a success result
+- a failure result
+- or a timeout outcome enforced by the worker host
+
+Plugins in v1 should be:
+
+- non-interactive
+- bounded
+- terminating
+
+Example plugin types:
+
+- **command**
+  Wraps a local CLI using stdin/stdout.
+
+- **API**
+  Calls an SDK or remote LLM API and returns textual output.
+
+- **wrapper**
+  Adapts an awkward CLI such as `gemini` into a clean
+  non-interactive contract.
+
+- **session**
+  A future stateful plugin model, not required in v1.
+
+---
+
+End-to-end example
+------------------
+
+1. Publish a request:
+
+```text
+topic: review.request
 body:
-Write a Python function that merges two sorted lists.
+Review this patch for correctness and missing tests.
 ```
 
-Program B consumes messages from `code.generate` and produces a
-result:
+2. Start a worker host for that topic:
 
+```text
+plugboard run \
+  --topic review.request \
+  --success-topic review.done \
+  --failure-topic review.failed \
+  -- some-review-plugin
 ```
-topic: code.generated
+
+3. The worker claims the message, runs the plugin, and publishes:
+
+```text
+topic: review.done
 body:
-def merge(a, b):
-    ...
+Found one regression risk in timeout handling.
 ```
 
-Plugboard routes messages. Programs decide how to interpret them.
+The follow-up keeps the conversation linked through `parent_id` and
+`conversation_id`.
 
 ---
 
-First milestone
----------------
-
-The first implementation should remain deliberately small.
-
-A minimal exchange should support:
-
-- publishing a textual message
-- listing or polling messages by topic
-- claiming a message for processing
-- acknowledging completion
-- publishing follow-up messages
-
-The system should remain easy to inspect locally.
-
----
-
-Philosophy
+CLI sketch
 ----------
 
-Plugboard follows the Unix tradition of loose composition:
+```text
+plugboard publish TOPIC BODY
+plugboard read --topic TOPIC
+plugboard inspect
+plugboard run --topic TOPIC --success-topic OK --failure-topic FAIL -- plugin
+```
 
-- programs communicate through text
-- structure emerges from usage
-- the coordination mechanism stays simple
-
-The exchange connects programs without forcing them into a shared framework.
+`plugboard run` should be understood as a worker host entrypoint. It
+continuously claims matching messages, invokes its configured plugin,
+and publishes follow-up messages.
 
 ---
 
 Status
 ------
 
-Early design stage.
+Early implementation stage.
 
 ---
 

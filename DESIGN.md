@@ -11,9 +11,9 @@ framework, workflow engine, or shared object model. Its purpose is to
 let separately built tools cooperate through loose textual interfaces.
 
 Programs interact with Plugboard by appending messages to the exchange
-and by reading or claiming messages that match their
-interests. Optional runners watch selected topics, invoke ordinary
-commands, and publish results back into the exchange.
+and by reading or claiming messages that match their interests.
+Optional worker hosts watch selected topics, invoke plugins, and
+publish results back into the exchange.
 
 The system acts as a software switchboard for cooperating processes.
 
@@ -95,9 +95,9 @@ rich control logic into the exchange itself.
 
 ## Core model
 
-Plugboard has two main concerns:
+Plugboard has three cooperating layers:
 
-### 1. The exchange
+### 1. Plugboard core exchange
 
 The exchange stores messages and exposes operations over them.
 
@@ -110,24 +110,37 @@ It is responsible for:
 * appending follow-up messages
 * making the local coordination history inspectable
 
-### 2. The runner
+The core is agnostic to who reads messages. Delivery is topic-based,
+not identity-based. Plugboard does not know whether a topic is read by
+a human, a script, a worker host, or an agent wrapper.
 
-A runner is an optional edge adapter that turns an ordinary command
-into an asynchronous participant.
+### 2. Worker host
+
+A worker host is an optional long-running adapter runtime that turns
+the exchange into an execution loop.
 
 It is responsible for:
 
-* watching for messages of interest
-* claiming a message
-* invoking a command
-* passing message text to that command
-* capturing stdout, stderr, exit status, and timeout
-* publishing result or failure messages back into the exchange
+* watching a configured topic
+* claiming one message at a time
+* invoking a plugin
+* enforcing timeout and lifecycle rules
+* publishing success, failure, or timeout follow-up messages
 
-The runner is not the exchange. It is a client of the exchange.
+The worker host is not the exchange. It is a client of the exchange.
 
-This separation is important. Plugboard stores and exposes
-messages. Runners implement local activation policy.
+### 3. Plugins
+
+Plugins implement actual behaviour behind a worker host.
+
+A plugin may:
+
+* wrap a command-line tool
+* call an API or SDK
+* adapt an awkward local CLI into a non-interactive contract
+
+This keeps agent and tool behaviour outside the core while still
+allowing asynchronous execution over Plugboard topics.
 
 ## Message semantics
 
@@ -191,7 +204,7 @@ The topic expresses coarse intent. The body carries the actual work
 text.
 
 Plugboard should not rely on parsing message bodies to decide which
-runner should react.
+worker host should react.
 
 ## Activation model
 
@@ -213,21 +226,22 @@ Messages may be published independently of when they are consumed.
 
 A participant may be:
 
-* a long-running worker process
+* a long-running worker host
 * a polling command
 * a wrapper around a passive CLI tool
-* an interactive or user-mediated tool invoked by a runner
+* a plugin adapter around a tool that is otherwise awkward to invoke
 
-### Runners bridge passive tools
+### Worker hosts bridge passive tools
 
-A runner allows an ordinary command-line program to participate in
-asynchronous coordination without becoming a service.
+A worker host allows an ordinary command-line program or API-backed
+integration to participate in asynchronous coordination without
+becoming a service.
 
-The runner provides the missing loop:
+The worker host provides the missing loop:
 
 * wait or poll for matching messages
 * claim one
-* invoke a command
+* invoke a plugin
 * publish the result
 
 This is a key property of Plugboard. It should support asynchronous
@@ -248,46 +262,58 @@ The system may support:
 But Plugboard should avoid making callback registration, service
 liveness, or network delivery semantics part of the core model.
 
-## Runner model
+## Worker Model
 
-A minimal runner is in scope because it demonstrates the usefulness of
-the exchange for passive tools.
+A minimal worker host is in scope because it demonstrates the
+usefulness of the exchange for passive tools.
 
-Without a runner, Plugboard risks collapsing into a small message
+Without a worker host, Plugboard risks collapsing into a small message
 store with no clear distinction from ordinary queueing tools.
 
 ### Minimal responsibilities
 
-A runner should do only a few things:
+A worker host should do only a few things:
 
 * select messages by topic, optionally with simple metadata filters
 * claim one message at a time
-* invoke a configured command
-* pass message body to stdin, file, or arguments
-* collect stdout, stderr, exit status, and timeout
+* invoke a configured plugin
+* pass message body and selected metadata to that plugin
+* collect stdout, stderr, exit status, and timeout information
 * publish success or failure follow-up messages
 
-### Runner mappings are external configuration
+The worker host should be a long-running process and should handle one
+message at a time in v1.
+
+For simple command plugins, the initial execution contract is:
+
+* write the message body to plugin stdin
+* close stdin
+* treat stdout as success output
+* treat non-zero exit as failure
+* capture stderr for diagnostics
+* enforce a per-message timeout
+
+### Worker mappings are external configuration
 
 Plugboard itself should not know that a given topic means a specific
-command must be invoked.
+plugin must be invoked.
 
-Mappings from topic to command are local policy and belong in runner
+Mappings from topic to plugin are local policy and belong in worker
 configuration, not in the exchange protocol.
 
-For example, a runner configuration may say:
+For example, a worker configuration may say:
 
 * match topic code.generate
-* invoke codex exec
+* invoke a command plugin that runs `codex exec`
 * publish success to code.generated
 * publish failure to code.generate.failed
 * enforce timeout 120 seconds
 
 This is configuration at the edge, not logic embedded in the exchange.
 
-### Avoid rich orchestration in the runner
+### Avoid rich orchestration in the worker host
 
-The runner should remain small. It should not become:
+The worker host should remain small. It should not become:
 
 * a workflow engine
 * a DAG executor
@@ -402,6 +428,35 @@ local exchange where ordinary programs can coordinate through text.
 
 This is a core identity constraint.
 
+## Plugin Model
+
+Plugins are the execution layer behind worker hosts.
+
+A plugin conceptually receives:
+
+* the claimed message body
+* selected message metadata
+* execution context from the worker
+
+And returns:
+
+* success output
+* failure output
+* or process state that the worker maps to timeout
+
+Plugins should be:
+
+* non-interactive
+* terminating
+* replaceable
+
+Example plugin types:
+
+* command plugin using stdin/stdout
+* API plugin using an SDK or HTTP client
+* wrapper plugin for awkward CLIs such as `gemini`
+* future session plugin for longer-lived stateful tools
+
 ## Operational principles
 
 The following principles should guide implementation decisions:
@@ -429,8 +484,8 @@ exchange state.
 
 ### Keep adapters replaceable
 
-The built-in runner should be small enough that someone could replace
-it with their own runner without changing the exchange model.
+The built-in worker host and plugins should be small enough that
+someone could replace them without changing the exchange model.
 
 ## Possible command surface
 
@@ -451,7 +506,7 @@ behind heavy abstractions.
 
 The most important command after publish is likely run, because it
 demonstrates how passive tools can participate asynchronously through
-a thin wrapper.
+a worker host and plugin boundary.
 
 ## First implementation milestone
 
@@ -464,8 +519,20 @@ A minimal useful prototype should support:
 * claiming a message atomically
 * recording completion or failure
 * publishing follow-up messages that reference earlier ones
-* running a configured command against claimed messages
-* publishing the command output as a new message
+* running a configured plugin against claimed messages
+* publishing the plugin output as a new message
+
+## End-to-end example
+
+One useful v1 story is:
+
+1. publish a message on `review.request`
+2. a worker host claims it
+3. the worker invokes a review plugin
+4. the worker publishes `review.done`
+
+This proves asynchronous agentic behaviour without teaching the core
+what an agent is.
 
 This is enough to show three independent programs cooperating through
 a local textual exchange without a shared framework.
@@ -479,7 +546,7 @@ The first design intentionally leaves several questions open:
 * whether blocked reads are supported initially or only polling
 * how much metadata is first-class versus conventional
 * what retention and cleanup commands look like
-* whether the runner supports parallelism in v1 or stays
+* whether the worker host supports parallelism in v1 or stays
   single-message-at-a-time
 
 These questions should be resolved in implementation only as
@@ -495,7 +562,7 @@ Its core commitments are:
 * text-first messages
 * immutable communication records
 * topic-based routing of interest
-* activation handled by optional runners
+* activation handled by optional worker hosts and plugins
 * local inspectable state
 * no agent framework
 * no workflow engine

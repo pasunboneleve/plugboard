@@ -22,8 +22,8 @@ Plugboard v1 should support:
 * claiming a message atomically for processing
 * recording completion, failure, or timeout
 * publishing follow-up messages
-* running a configured command against claimed messages
-* publishing the command output as a new message
+* running a configured plugin against claimed messages
+* publishing the plugin output as a new message
 
 Plugboard v1 does **not** need:
 
@@ -42,52 +42,58 @@ Plugboard v1 does **not** need:
 
 # High-level structure
 
-Plugboard v1 has three parts:
+Plugboard v1 has three layers:
 
-## 1. CLI commands
+## 1. Plugboard core exchange
 
-The public interface.
-
-Examples:
-
-* `plugboard publish`
-* `plugboard read`
-* `plugboard inspect`
-* `plugboard run`
-
-These commands should be thin wrappers over internal operations.
-
----
-
-## 2. Exchange layer
-
-The exchange owns:
+The core owns:
 
 * message storage
 * claims
 * state inspection
 * atomic transitions
 
-The exchange does **not** own:
+The core does **not** own:
 
 * agent semantics
 * workflow logic
 * message interpretation
-* command-specific policy
+* plugin-specific policy
+* identity-based delivery
+
+Messages are routed by topic. Plugboard is agnostic to who or what
+consumes them.
 
 ---
 
-## 3. Runner layer
+## 2. Worker host layer
 
-The runner is a small adapter that:
+A worker host is a long-running adapter runtime. It:
 
 * polls for work on one topic
 * claims a message
-* invokes a command
+* invokes a plugin
 * captures result
 * appends follow-up messages
 
-The runner is a client of the exchange.
+The worker host is a client of the exchange.
+
+---
+
+## 3. Plugin layer
+
+Plugins implement actual behaviour. A plugin may wrap a command-line
+tool, call an API, or adapt a local tool into a non-interactive
+contract that the worker host can run safely.
+
+The CLI remains the user-facing entrypoint:
+
+* `plugboard publish`
+* `plugboard read`
+* `plugboard inspect`
+* `plugboard run`
+
+`plugboard run` should be understood as a worker host command.
 
 ---
 
@@ -154,7 +160,7 @@ Do not make metadata central to the model.
 
 # Claim model
 
-A claim is an operational record saying a runner is processing a
+A claim is an operational record saying a worker host is processing a
 message.
 
 Suggested fields:
@@ -255,7 +261,8 @@ Publishing a message never modifies an existing message.
 
 ## Claim
 
-A runner asks the exchange for one unclaimed message matching a topic.
+A worker host asks the exchange for one unclaimed message matching a
+topic.
 
 The exchange should atomically:
 
@@ -269,7 +276,7 @@ This operation must be transactional.
 
 ## Complete
 
-When processing succeeds, the runner:
+When processing succeeds, the worker host:
 
 * marks the claim as `completed`
 * may append a follow-up success message
@@ -280,7 +287,7 @@ Completion does not mutate the original message.
 
 ## Fail
 
-When processing fails, the runner:
+When processing fails, the worker host:
 
 * marks the claim as `failed`
 * may append a follow-up failure message
@@ -291,7 +298,7 @@ Again, the original message remains unchanged.
 
 ## Timeout
 
-If command execution exceeds the configured timeout, the runner:
+If plugin execution exceeds the configured timeout, the worker host:
 
 * terminates the command if possible
 * marks the claim as `timed_out`
@@ -305,7 +312,7 @@ Lease and timeout policy should remain simple in v1.
 
 This is the most important bit to get right.
 
-A runner should not:
+A worker host should not:
 
 * list messages
 * choose one in process memory
@@ -334,20 +341,20 @@ Do not add priority, scheduling, or fairness rules yet.
 
 ---
 
-# Runner behaviour
+# Worker Model
 
-A runner should be intentionally boring.
+A worker host should be intentionally boring.
 
 ## Inputs
 
-The runner needs:
+The worker host needs:
 
 * a topic to watch
-* a command to invoke
+* a plugin to invoke
 * a success topic
 * a failure topic
 * a timeout
-* optionally a runner name
+* optionally a worker name
 
 ## Loop
 
@@ -355,27 +362,28 @@ The loop is:
 
 1. try to claim one message for the configured topic
 2. if none exists, sleep briefly and try again
-3. run the configured command
-4. pass the message body to the command
+3. run the configured plugin
+4. pass the message body and selected metadata to the plugin
 5. collect stdout, stderr, exit code
 6. record claim outcome
 7. append follow-up message
 
 That is all.
 
-Do not add concurrency to the runner initially. One runner, one
+Do not add concurrency to the worker host initially. One worker, one
 message at a time is fine for v1.
 
 ---
 
-# Command invocation contract
+# Simple plugin contract
 
-V1 should choose one simple contract for how commands receive input
-and return output.
+V1 should choose one simple contract for how simple plugins receive
+input and return output.
 
 Recommended initial contract:
 
-* pass message body to the child process on `stdin`
+* pass message body to the plugin on `stdin`
+* close stdin after writing
 * treat `stdout` as success output
 * treat non-zero exit as failure
 * capture `stderr` for diagnostics
@@ -392,9 +400,38 @@ But not in v1.
 
 ---
 
+# Plugin Model
+
+A plugin conceptually receives:
+
+* the claimed message body
+* selected message metadata
+* execution context from the worker host
+
+And returns:
+
+* success output
+* failure output
+* or a process state that the worker maps to timeout
+
+Plugins must be:
+
+* non-interactive
+* terminating
+* usable without the core understanding agent identity
+
+Example plugin types:
+
+* command plugin using stdin/stdout
+* API-backed plugin using an SDK
+* wrapper plugin for awkward CLIs such as `gemini`
+* future session plugin for stateful backends
+
+---
+
 # Follow-up messages
 
-Runners should publish follow-up messages rather than mutating prior
+Worker hosts should publish follow-up messages rather than mutating prior
 ones.
 
 Recommended default pattern:
@@ -492,32 +529,33 @@ plugboard run \
   -- codex exec
 ```
 
-The command after `--` is the child process to invoke.
+The command after `--` identifies the initial command plugin to invoke.
 
 This command is one of the most important parts of the project because
-it demonstrates how passive tools join the exchange.
+it demonstrates how passive tools join the exchange through a worker
+host and plugin boundary.
 
 ---
 
-# Config shape for runners
+# Config shape for workers
 
-V1 can support CLI-only runner configuration at first.
+V1 can support CLI-only worker configuration at first.
 
 If file-based configuration is added, keep it very small.
 
 Example TOML shape:
 
 ```toml
-[[runner]]
+[[worker]]
 name = "codex-codegen"
 topic = "code.generate"
 success_topic = "code.generated"
 failure_topic = "code.generate.failed"
 timeout_seconds = 120
-command = ["codex", "exec"]
+plugin = { type = "command", command = ["codex", "exec"] }
 ```
 
-This is enough. Do not invent a runner DSL.
+This is enough. Do not invent a worker DSL.
 
 ---
 
@@ -531,7 +569,7 @@ V1 should make it easy to answer:
 * which messages are unclaimed?
 * which claims are active?
 * what happened in this conversation?
-* what did this runner produce?
+* what did this worker produce?
 
 This is why:
 
@@ -559,16 +597,16 @@ loops.
 * atomic claim logic
 * claim completion and failure transitions
 * follow-up message creation
-* command result mapping into success/failure messages
+* plugin result mapping into success/failure messages
 
 ## Keep thin wrappers thin
 
-The CLI and runner loop should mostly do I/O:
+The CLI and worker loop should mostly do I/O:
 
 * parse args
 * call exchange methods
 * sleep/poll
-* spawn process
+* run plugin
 * print results
 
 This means most behaviour can be tested below the event-loop level.
@@ -588,7 +626,7 @@ When implementing v1, keep these guardrails in mind:
 * do not add retries automatically
 * do not add scheduling or priorities
 * do not add network protocols
-* do not make the runner clever
+* do not make the worker host clever
 
 Plugboard should feel smaller after implementation, not bigger.
 
@@ -602,7 +640,7 @@ Plugboard should feel smaller after implementation, not bigger.
 4. implement atomic `claim`
 5. implement `complete` and `fail`
 6. implement follow-up message creation
-7. implement `run`
+7. implement `run` as a worker host entrypoint
 8. implement `inspect`
 
 This order proves the model early and reduces the risk of abstraction
@@ -618,9 +656,24 @@ Plugboard v1 should be a very small local system with:
 * separate operational claims
 * topic-based routing
 * a SQLite backend
-* a minimal polling runner
+* a minimal polling worker host
 * follow-up messages for outcomes
 * thin CLI commands over a small exchange API
+
+## End-to-end example
+
+```text
+plugboard publish review.request "Review this code"
+
+plugboard run \
+  --topic review.request \
+  --success-topic review.done \
+  --failure-topic review.failed \
+  -- my-review-plugin
+```
+
+The worker host claims one `review.request` message, runs the plugin,
+and publishes a `review.done` follow-up if the plugin succeeds.
 
 That is enough to prove the project’s core idea:
 
