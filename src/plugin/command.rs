@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{ErrorKind, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -41,8 +41,13 @@ impl Plugin for CommandPlugin {
             .spawn()?;
 
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(input.message.body.as_bytes())?;
-            stdin.flush()?;
+            if let Err(error) = stdin.write_all(input.message.body.as_bytes()) {
+                if error.kind() != ErrorKind::BrokenPipe {
+                    return Err(error.into());
+                }
+            } else {
+                stdin.flush()?;
+            }
             drop(stdin);
         }
 
@@ -74,5 +79,49 @@ impl Plugin for CommandPlugin {
                 exit_code,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::Message;
+    use crate::plugin::{Plugin, PluginContext, PluginInput, PluginResult};
+
+    use super::CommandPlugin;
+
+    fn message(body: &str) -> Message {
+        Message {
+            id: "message-1".into(),
+            topic: "review.request".into(),
+            body: body.into(),
+            created_at: "2026-03-17T00:00:00Z".into(),
+            parent_id: None,
+            conversation_id: "conversation-1".into(),
+            producer: Some("tester".into()),
+            metadata_json: None,
+        }
+    }
+
+    fn context() -> PluginContext {
+        PluginContext {
+            worker_name: "worker-1".into(),
+            timeout_seconds: 5,
+        }
+    }
+
+    #[test]
+    fn ignores_broken_pipe_when_command_closes_stdin_early() {
+        let plugin = CommandPlugin::new(vec!["sh".into(), "-c".into(), "exit 0".into()]).unwrap();
+        let message = message("body that will not be read");
+        let context = context();
+
+        let result = plugin
+            .run(PluginInput {
+                message: &message,
+                context: &context,
+            })
+            .unwrap();
+
+        assert!(matches!(result, PluginResult::Success { exit_code: 0, .. }));
     }
 }
