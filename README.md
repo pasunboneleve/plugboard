@@ -8,6 +8,15 @@ work, and append follow-up messages. Plugboard does not define agents,
 workflow graphs, or identity-based delivery. It routes interest by
 topic and leaves behaviour to processes outside the core.
 
+Getting Started
+---------------
+
+Plugboard is a textual exchange; workers listen on topics and process
+messages using simple stdin/stdout contracts.
+
+- [Quickstart](docs/quickstart.md)
+- [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
+
 ---
 
 Three-layer model
