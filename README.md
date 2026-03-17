@@ -17,8 +17,6 @@ messages using simple stdin/stdout contracts.
 - [Quickstart](docs/quickstart.md)
 - [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
 
----
-
 Three-layer model
 -----------------
 
@@ -42,11 +40,7 @@ The core remains agnostic to who reads a message. Delivery is
 topic-based, not identity-based. Agent behaviour lives entirely in the
 worker host and its plugins.
 
----
-
-Why
----
-
+## Why
 Many automation and AI systems rely on tightly coupled frameworks:
 
 - shared SDKs
@@ -61,10 +55,7 @@ Unix took a different path: small programs communicating through text.
 Plugboard applies that idea to asynchronous coordination between
 independent tools.
 
----
-
-Design goals
-------------
+## Design goals
 
 - **Local-first**
   Designed to run on a single machine.
@@ -82,10 +73,7 @@ Design goals
   Users should be able to understand activity by reading messages and
   claims.
 
----
-
-Non-goals
----------
+## Non-goals
 
 Plugboard is not:
 
@@ -97,10 +85,7 @@ Plugboard is not:
 
 Programs remain ordinary processes outside the exchange.
 
----
-
-Conceptual model
-----------------
+## Conceptual model
 
 Messages are published into a local exchange. Worker hosts watch
 topics, claim matching messages, run plugins, and append follow-up
@@ -120,10 +105,7 @@ The exchange manages:
 
 It does not define what a reviewer, coder, planner, or agent is.
 
----
-
-Worker Model
-------------
+## Worker Model
 
 The worker host is a long-running process.
 
@@ -155,10 +137,7 @@ Each worker configuration also defines:
 
 Timeouts publish to `<topic>.timed_out`.
 
----
-
-Plugin Model
-------------
+## Plugin Model
 
 A plugin defines the actual execution behaviour behind a worker.
 
@@ -195,10 +174,7 @@ Example plugin types:
 - **session**
   A future stateful plugin model, not required in v1.
 
----
-
-End-to-end example
-------------------
+## End-to-end example
 
 1. Publish a request:
 
@@ -229,10 +205,7 @@ Found one regression risk in timeout handling.
 The follow-up keeps the conversation linked through `parent_id` and
 `conversation_id`.
 
----
-
-CLI sketch
-----------
+## CLI sketch
 
 ```text
 plugboard publish TOPIC BODY
@@ -245,16 +218,10 @@ plugboard run --topic TOPIC --success-topic OK --failure-topic FAIL -- plugin
 continuously claims matching messages, invokes its configured plugin,
 and publishes follow-up messages.
 
----
-
-Status
-------
+## Status
 
 Early implementation stage.
 
----
-
-Licence
--------
+## Licence
 
 MIT

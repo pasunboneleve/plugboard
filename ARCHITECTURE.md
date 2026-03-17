@@ -11,9 +11,7 @@ implementation stays aligned with that design.
 The goal is not to design the final system. The goal is to keep the
 first version small, legible, and hard to overengineer.
 
----
-
-# v1 scope
+## v1 scope
 
 Plugboard v1 should support:
 
@@ -38,9 +36,7 @@ Plugboard v1 does **not** need:
 * schema validation
 * embedded business workflows
 
----
-
-# High-level structure
+## High-level structure
 
 Plugboard v1 has three layers:
 
@@ -64,8 +60,6 @@ The core does **not** own:
 Messages are routed by topic. Plugboard is agnostic to who or what
 consumes them.
 
----
-
 ## 2. Worker host layer
 
 A worker host is a long-running adapter runtime. It:
@@ -77,8 +71,6 @@ A worker host is a long-running adapter runtime. It:
 * appends follow-up messages
 
 The worker host is a client of the exchange.
-
----
 
 ## 3. Plugin layer
 
@@ -95,9 +87,7 @@ The CLI remains the user-facing entrypoint:
 
 `plugboard run` should be understood as a worker host command.
 
----
-
-# Storage backend
+## Storage backend
 
 V1 uses **SQLite**.
 
@@ -118,9 +108,7 @@ The SQLite database file can default to something like:
 
 The exact path can be configurable later.
 
----
-
-# Core entities
+## Core entities
 
 V1 should model only two durable things:
 
@@ -130,9 +118,7 @@ V1 should model only two durable things:
 Do not introduce jobs, workflows, agents, executions, or subscriptions
 as first-class database entities in v1.
 
----
-
-# Message model
+## Message model
 
 A message is an immutable textual record.
 
@@ -156,9 +142,7 @@ Notes:
 
 Do not make metadata central to the model.
 
----
-
-# Claim model
+## Claim model
 
 A claim is an operational record saying a worker host is processing a
 message.
@@ -189,9 +173,7 @@ Notes:
 If later you need richer execution state, add it later. Do not
 prebuild it now.
 
----
-
-# Suggested schema sketch
+## Suggested schema sketch
 
 This is intentionally small.
 
@@ -233,9 +215,7 @@ CREATE INDEX idx_claims_runner_status
 
 This is enough for v1.
 
----
-
-# Message lifecycle
+## Message lifecycle
 
 V1 should keep the lifecycle simple.
 
@@ -257,8 +237,6 @@ Optional inputs:
 
 Publishing a message never modifies an existing message.
 
----
-
 ## Claim
 
 A worker host asks the exchange for one unclaimed message matching a
@@ -272,8 +250,6 @@ The exchange should atomically:
 
 This operation must be transactional.
 
----
-
 ## Complete
 
 When processing succeeds, the worker host:
@@ -283,8 +259,6 @@ When processing succeeds, the worker host:
 
 Completion does not mutate the original message.
 
----
-
 ## Fail
 
 When processing fails, the worker host:
@@ -293,8 +267,6 @@ When processing fails, the worker host:
 * may append a follow-up failure message
 
 Again, the original message remains unchanged.
-
----
 
 ## Timeout
 
@@ -306,9 +278,7 @@ If plugin execution exceeds the configured timeout, the worker host:
 
 Lease and timeout policy should remain simple in v1.
 
----
-
-# How claiming should work
+## How claiming should work
 
 This is the most important bit to get right.
 
@@ -339,9 +309,7 @@ For v1, “eligible” can simply mean:
 
 Do not add priority, scheduling, or fairness rules yet.
 
----
-
-# Worker Model
+## Worker Model
 
 A worker host should be intentionally boring.
 
@@ -373,9 +341,7 @@ That is all.
 Do not add concurrency to the worker host initially. One worker, one
 message at a time is fine for v1.
 
----
-
-# Simple plugin contract
+## Simple plugin contract
 
 V1 should choose one simple contract for how simple plugins receive
 input and return output.
@@ -398,9 +364,7 @@ Later, alternative modes could be added, such as:
 
 But not in v1.
 
----
-
-# Plugin Model
+## Plugin Model
 
 A plugin conceptually receives:
 
@@ -427,9 +391,7 @@ Example plugin types:
 * wrapper plugin for awkward CLIs such as `gemini`
 * future session plugin for stateful backends
 
----
-
-# Follow-up messages
+## Follow-up messages
 
 Worker hosts should publish follow-up messages rather than mutating prior
 ones.
@@ -457,9 +419,7 @@ Timeout follow-up:
 
 This keeps the conversation visible in the message log.
 
----
-
-# Conversation model
+## Conversation model
 
 V1 should support lightweight message threading.
 
@@ -474,9 +434,7 @@ This makes it easy to inspect all messages in one chain.
 Do not introduce a separate conversations table in v1 unless it
 becomes necessary.
 
----
-
-# CLI sketch
+## CLI sketch
 
 This is only a sketch, but it is useful to anchor implementation.
 
@@ -493,8 +451,6 @@ Optional flags could later include:
 * `--producer`
 * `--meta`
 
----
-
 ## Read
 
 ```text
@@ -503,8 +459,6 @@ plugboard read --conversation ID
 ```
 
 For v1, keep output simple and human-readable.
-
----
 
 ## Inspect
 
@@ -515,8 +469,6 @@ plugboard inspect --conversation ID
 ```
 
 This command should help debugging.
-
----
 
 ## Run
 
@@ -535,9 +487,7 @@ This command is one of the most important parts of the project because
 it demonstrates how passive tools join the exchange through a worker
 host and plugin boundary.
 
----
-
-# Config shape for workers
+## Config shape for workers
 
 V1 can support CLI-only worker configuration at first.
 
@@ -557,9 +507,7 @@ plugin = { type = "command", command = ["codex", "exec"] }
 
 This is enough. Do not invent a worker DSL.
 
----
-
-# Inspection and debugging
+## Inspection and debugging
 
 Plugboard should be easy to inspect during development.
 
@@ -583,9 +531,7 @@ A useful principle for v1:
 **If something goes wrong, a user should be able to understand it by
 reading messages and claims.**
 
----
-
-# Testing strategy
+## Testing strategy
 
 The implementation should make testing easy by separating logic from
 loops.
@@ -613,9 +559,7 @@ This means most behaviour can be tested below the event-loop level.
 
 That is a feature of this architecture.
 
----
-
-# Important constraints for implementation
+## Important constraints for implementation
 
 When implementing v1, keep these guardrails in mind:
 
@@ -630,9 +574,7 @@ When implementing v1, keep these guardrails in mind:
 
 Plugboard should feel smaller after implementation, not bigger.
 
----
-
-# Recommended implementation order
+## Recommended implementation order
 
 1. create SQLite schema
 2. implement `publish`
@@ -646,9 +588,7 @@ Plugboard should feel smaller after implementation, not bigger.
 This order proves the model early and reduces the risk of abstraction
 drift.
 
----
-
-# Summary
+## Summary
 
 Plugboard v1 should be a very small local system with:
 
