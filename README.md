@@ -15,12 +15,19 @@ Plugboard is a textual exchange; workers listen on topics and process
 messages using simple stdin/stdout contracts.
 
 - [Quickstart](docs/quickstart.md)
+- [Plugin Backend Options](docs/plugin-backends.md)
 - [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
 - [Codex to Gemini Workflow](docs/howto/codex-to-gemini.md)
 
 The repository includes both a deterministic demo plugin for local
 end-to-end testing and a real Gemini adapter plugin for actual Gemini
 request/reply workflows.
+
+Plugboard can be useful with several backend styles: simple stateless
+transforms, low-latency local model plugins, plugins that talk to
+already-running agents or warm backends, and direct API plugins for
+hosted services. Those are plugin-layer choices rather than protocol
+changes in the core exchange.
 
 Three-layer model
 -----------------
@@ -40,6 +47,24 @@ Plugboard is easiest to understand as three layers:
    Execution backends used by the worker host. A plugin may wrap a
    command-line tool, call an API, or adapt an awkward local tool into
    a simple non-interactive contract.
+
+Those plugins can take several practical forms:
+
+* **simple stateless transforms**
+  One message triggers one process. Best for shell filters,
+  deterministic tools, and small adapters.
+
+* **local model plugins**
+  Good for fast local demos and development when hosted agent cold
+  start is too slow.
+
+* **already-running agent or session-backed plugins**
+  Useful when the plugin needs to talk to a warm backend. Any
+  persistence belongs in the plugin layer, not Plugboard core.
+
+* **API plugins**
+  Call hosted models or external services directly while preserving
+  the same topic-based exchange pattern.
 
 The core remains agnostic to who reads a message. Delivery is
 topic-based, not identity-based. Agent behaviour lives entirely in the

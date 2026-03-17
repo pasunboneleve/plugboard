@@ -142,6 +142,57 @@ A plugin may:
 This keeps agent and tool behaviour outside the core while still
 allowing asynchronous execution over Plugboard topics.
 
+## Backend alternatives
+
+Plugboard should stay open to multiple backend styles without making
+the core agent-aware.
+
+### Simple stateless transforms
+
+This is the baseline worker shape:
+
+* one message triggers one process
+* message text goes in
+* textual result comes out
+* the process exits
+
+This is ideal for shell filters, deterministic transforms, and simple
+command adapters.
+
+### Local model plugins
+
+Plugboard also needs a strong local-model path. A local model plugin
+can talk to a local inference runtime or service and make Plugboard
+feel responsive during development.
+
+This matters because a good product demo should not depend on the cold
+start behaviour of a hosted agent CLI.
+
+### Already-running agent or session-backed plugins
+
+Some useful backends are warm, already-running processes. A plugin may
+talk to one of those backends when cold start would otherwise dominate
+latency.
+
+That does not mean Plugboard should manage sessions. Session or
+persistence concerns belong in the plugin layer, not in the core
+exchange.
+
+### API plugins
+
+Some integrations are cleanest as direct API calls. A plugin can turn
+a claimed message into an HTTP or SDK request and then return the
+final textual result through the normal worker lifecycle.
+
+From Plugboard's point of view, this is still the same pattern:
+
+* publish
+* claim
+* execute plugin
+* publish follow-up
+
+The exchange remains topic-based and agent-agnostic.
+
 ## Message semantics
 
 ### Messages are textual
@@ -296,6 +347,10 @@ For simple command plugins, the initial execution contract is:
 * treat non-zero exit as failure
 * capture stderr for diagnostics
 * enforce a per-message timeout
+
+This stateless contract remains important even if some plugins hide a
+local service, a warm backend, or a hosted API behind the scenes. It
+is the baseline model, not the only possible backend shape.
 
 ### Worker mappings are external configuration
 

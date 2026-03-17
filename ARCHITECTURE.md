@@ -83,6 +83,32 @@ Plugins implement actual behaviour. A plugin may wrap a command-line
 tool, call an API, or adapt a local tool into a non-interactive
 contract that the worker host can run safely.
 
+## Backend execution models
+
+The worker host and plugin layer can support several practical backend
+styles without changing Plugboard core:
+
+* **simple stateless transforms**
+  One claimed message starts one process. The worker writes the body to
+  `stdin`, the plugin returns text on `stdout`, and the process exits.
+
+* **local model plugins**
+  A plugin talks to a local inference engine or service. This is useful
+  for fast demos and day-to-day development when hosted agent cold
+  start is too slow.
+
+* **already-running agent or session-backed plugins**
+  A plugin may talk to a warm backend or long-lived local agent. Any
+  persistence stays in the plugin layer; the exchange still sees only
+  topic-based messages, claims, and follow-ups.
+
+* **API plugins**
+  A plugin can call a hosted API directly and still return a textual
+  result through the same worker lifecycle.
+
+These are backend alternatives, not protocol changes. Plugboard still
+does not manage identity, presence, routing, or sessions.
+
 The CLI remains the user-facing entrypoint:
 
 * `plugboard publish`
@@ -317,6 +343,12 @@ Do not add priority, scheduling, or fairness rules yet.
 ## Worker Model
 
 A worker host should be intentionally boring.
+
+The stateless stdin/stdout contract remains the baseline because it is
+easy to understand and test. But it is not the only useful plugin
+shape. A plugin may also hide a local service, a warm session-backed
+backend, or a hosted API as long as the worker host still receives a
+bounded per-message result.
 
 ## Inputs
 
