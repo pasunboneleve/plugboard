@@ -20,6 +20,10 @@ that body as `--prompt` plus `--output-format json` and
 `--approval-mode plan`. It does not forward the plugin's stdin stream to
 the Gemini subprocess.
 
+Real Gemini runs can take well over a minute. `plugboard run` defaults
+to a 60-second per-message timeout, so this guide sets a larger timeout
+explicitly.
+
 ## Prerequisites
 
 Use the same prerequisites documented in
@@ -56,10 +60,11 @@ plugboard publish gemini.review.request "Review this Rust code for timeout bugs"
 Start the worker host:
 
 ```bash
-timeout 2 plugboard run \
+timeout 320 plugboard run \
   --topic gemini.review.request \
   --success-topic gemini.review.done \
   --failure-topic gemini.review.failed \
+  --timeout-seconds 300 \
   -- gemini-plugin
 ```
 
@@ -71,6 +76,10 @@ plugboard read --topic gemini.review.done
 
 The exact reply text depends on Gemini, the configured model, and the
 prompt you publish.
+
+If the worker hits its own timeout first, Plugboard publishes a follow-up
+to `gemini.review.request.timed_out`. Increase `--timeout-seconds` and
+run again.
 
 The response proves the pattern:
 

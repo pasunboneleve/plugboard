@@ -119,6 +119,10 @@ It uses the installed Gemini CLI in non-interactive JSON mode:
 * writes the final response to `stdout`
 * exits nonzero if Gemini returns an error
 
+The worker host still enforces a per-message timeout around that plugin.
+`plugboard run` defaults to 60 seconds, which may be too short for real
+Gemini calls. Use `--timeout-seconds` when validating live workflows.
+
 Prerequisites for the real adapter:
 
 * Gemini CLI installed on `PATH` as `gemini`, or set

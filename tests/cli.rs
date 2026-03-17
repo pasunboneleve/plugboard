@@ -49,6 +49,8 @@ fn run_help_describes_worker_host() {
     assert!(stdout.contains("worker host"));
     assert!(stdout.contains("claims one message at a time"));
     assert!(stdout.contains("writes the claimed message body"));
+    assert!(stdout.contains("default is 60 seconds"));
+    assert!(stdout.contains("Raise it for slower backends such as Gemini"));
     assert!(stdout.contains("Interactive tools usually need a wrapper"));
 }
 

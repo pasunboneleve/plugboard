@@ -45,6 +45,10 @@ For the baseline command plugin, the child command must:
 An exit code of `0` is treated as success. A non-zero exit code is
 treated as failure and published to the configured failure topic.
 
+`plugboard run` also has its own per-message timeout, which defaults to
+60 seconds. That is plenty for the `tr` example here, but real LLM
+backends may need a larger `--timeout-seconds` value.
+
 ## Execution Model
 
 Workers are stateless. Each claimed message starts a fresh backend
