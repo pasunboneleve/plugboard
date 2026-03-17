@@ -34,3 +34,18 @@ fn publish_and_read_commands_work() {
     assert!(stdout.contains("code.generate"));
     assert!(stdout.contains("hello"));
 }
+
+#[test]
+fn run_help_describes_worker_host() {
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let help = Command::new(binary)
+        .args(["run", "--help"])
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+
+    let stdout = String::from_utf8_lossy(&help.stdout);
+    assert!(stdout.contains("worker host"));
+    assert!(stdout.contains("claims messages and executes a plugin"));
+}

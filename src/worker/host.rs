@@ -1,45 +1,39 @@
-use std::io::Write;
-use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
 use serde_json::json;
-use wait_timeout::ChildExt;
 
 use crate::domain::{Message, NewMessage};
-use crate::error::{PlugboardError, Result};
+use crate::error::Result;
 use crate::exchange::Exchange;
+use crate::plugin::{Plugin, PluginContext, PluginInput, PluginResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutcomeTopics {
     pub success: String,
     pub failure: String,
-    // Timeout follows the original topic by default to keep v1 runner setup small.
     pub timeout: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunnerConfig {
+pub struct WorkerConfig {
     pub topic: String,
-    pub runner_name: String,
+    pub worker_name: String,
     pub timeout_seconds: u64,
     pub idle_sleep: Duration,
-    pub command: Vec<String>,
     pub outcome_topics: OutcomeTopics,
 }
 
-impl RunnerConfig {
-    // v1 keeps timeout topic derivation implicit: "<watched topic>.timed_out".
+impl WorkerConfig {
     pub fn new(
         topic: impl Into<String>,
         success_topic: impl Into<String>,
         failure_topic: impl Into<String>,
         timeout_seconds: u64,
-        command: Vec<String>,
     ) -> Self {
         let topic = topic.into();
         Self {
-            runner_name: format!("{topic}-runner"),
+            worker_name: format!("{topic}-worker"),
             outcome_topics: OutcomeTopics {
                 success: success_topic.into(),
                 failure: failure_topic.into(),
@@ -48,7 +42,6 @@ impl RunnerConfig {
             topic,
             timeout_seconds,
             idle_sleep: Duration::from_millis(250),
-            command,
         }
     }
 }
@@ -62,32 +55,19 @@ pub enum RunOnceOutcome {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CommandResult {
-    Success {
-        stdout: String,
-        stderr: String,
-        exit_code: i32,
-    },
-    Failed {
-        stdout: String,
-        stderr: String,
-        exit_code: i32,
-    },
-    TimedOut {
-        stdout: String,
-        stderr: String,
-    },
-}
-
-pub struct CommandRunner<'a, E: Exchange> {
+pub struct WorkerHost<'a, E: Exchange, P: Plugin> {
     exchange: &'a E,
-    config: RunnerConfig,
+    plugin: &'a P,
+    config: WorkerConfig,
 }
 
-impl<'a, E: Exchange> CommandRunner<'a, E> {
-    pub fn new(exchange: &'a E, config: RunnerConfig) -> Self {
-        Self { exchange, config }
+impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
+    pub fn new(exchange: &'a E, plugin: &'a P, config: WorkerConfig) -> Self {
+        Self {
+            exchange,
+            plugin,
+            config,
+        }
     }
 
     pub fn run_forever(&self) -> Result<()> {
@@ -102,14 +82,21 @@ impl<'a, E: Exchange> CommandRunner<'a, E> {
     pub fn run_once(&self) -> Result<RunOnceOutcome> {
         let Some((message, claim)) = self.exchange.claim_next(
             &self.config.topic,
-            &self.config.runner_name,
+            &self.config.worker_name,
             self.config.timeout_seconds as i64,
         )?
         else {
             return Ok(RunOnceOutcome::Idle);
         };
 
-        let result = self.execute(&message.body)?;
+        let context = PluginContext {
+            worker_name: self.config.worker_name.clone(),
+            timeout_seconds: self.config.timeout_seconds,
+        };
+        let result = self.plugin.run(PluginInput {
+            message: &message,
+            context: &context,
+        })?;
         let follow_up = self.publish_result(&message, &claim.id, result)?;
 
         Ok(RunOnceOutcome::Handled {
@@ -122,88 +109,43 @@ impl<'a, E: Exchange> CommandRunner<'a, E> {
         &self,
         message: &Message,
         claim_id: &str,
-        result: CommandResult,
+        result: PluginResult,
     ) -> Result<Message> {
-        let follow_up = build_follow_up_message(message, &self.config, &result);
+        let follow_up = build_follow_up_message(message, &self.config, self.plugin.name(), &result);
 
         match result {
-            CommandResult::Success { .. } => {
+            PluginResult::Success { .. } => {
                 self.exchange.complete_claim(claim_id)?;
             }
-            CommandResult::Failed { .. } => {
+            PluginResult::Failed { .. } => {
                 self.exchange.fail_claim(claim_id)?;
             }
-            CommandResult::TimedOut { .. } => {
+            PluginResult::TimedOut { .. } => {
                 self.exchange.timeout_claim(claim_id)?;
             }
         }
 
         self.exchange.publish(follow_up)
     }
-
-    fn execute(&self, body: &str) -> Result<CommandResult> {
-        let Some(program) = self.config.command.first() else {
-            return Err(PlugboardError::EmptyCommand);
-        };
-
-        let mut child = Command::new(program)
-            .args(&self.config.command[1..])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(body.as_bytes())?;
-        }
-
-        let timeout = Duration::from_secs(self.config.timeout_seconds);
-        if child.wait_timeout(timeout)?.is_none() {
-            child.kill()?;
-            let output = child.wait_with_output()?;
-            return Ok(CommandResult::TimedOut {
-                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            });
-        }
-
-        let output = child.wait_with_output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        let exit_code = output.status.code().unwrap_or(-1);
-
-        if output.status.success() {
-            Ok(CommandResult::Success {
-                stdout,
-                stderr,
-                exit_code,
-            })
-        } else {
-            Ok(CommandResult::Failed {
-                stdout,
-                stderr,
-                exit_code,
-            })
-        }
-    }
 }
 
 pub fn build_follow_up_message(
     message: &Message,
-    config: &RunnerConfig,
-    result: &CommandResult,
+    config: &WorkerConfig,
+    plugin_name: &str,
+    result: &PluginResult,
 ) -> NewMessage {
     let mut follow_up = NewMessage {
         topic: String::new(),
         body: String::new(),
         parent_id: Some(message.id.clone()),
         conversation_id: Some(message.conversation_id.clone()),
-        producer: Some(config.runner_name.clone()),
+        producer: Some(config.worker_name.clone()),
         metadata_json: None,
     };
 
     match result {
-        CommandResult::Success {
+        PluginResult::Success {
             stdout,
             stderr,
             exit_code,
@@ -212,6 +154,7 @@ pub fn build_follow_up_message(
             follow_up.body = stdout.clone();
             follow_up.metadata_json = Some(
                 json!({
+                    "plugin": plugin_name,
                     "stdout": stdout,
                     "stderr": stderr,
                     "exit_code": exit_code,
@@ -220,7 +163,7 @@ pub fn build_follow_up_message(
                 .to_string(),
             );
         }
-        CommandResult::Failed {
+        PluginResult::Failed {
             stdout,
             stderr,
             exit_code,
@@ -237,6 +180,7 @@ pub fn build_follow_up_message(
             };
             follow_up.metadata_json = Some(
                 json!({
+                    "plugin": plugin_name,
                     "stdout": stdout,
                     "stderr": stderr,
                     "exit_code": exit_code,
@@ -245,7 +189,7 @@ pub fn build_follow_up_message(
                 .to_string(),
             );
         }
-        CommandResult::TimedOut { stdout, stderr } => {
+        PluginResult::TimedOut { stdout, stderr } => {
             follow_up.topic = config.outcome_topics.timeout.clone();
             let mut body = format!("command timed out after {} seconds", config.timeout_seconds);
             if !stderr.is_empty() {
@@ -255,6 +199,7 @@ pub fn build_follow_up_message(
             follow_up.body = body;
             follow_up.metadata_json = Some(
                 json!({
+                    "plugin": plugin_name,
                     "stdout": stdout,
                     "stderr": stderr,
                     "status": "timed_out",
@@ -269,8 +214,9 @@ pub fn build_follow_up_message(
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandResult, OutcomeTopics, RunnerConfig, build_follow_up_message};
+    use super::{OutcomeTopics, WorkerConfig, build_follow_up_message};
     use crate::domain::Message;
+    use crate::plugin::PluginResult;
 
     fn base_message() -> Message {
         Message {
@@ -285,13 +231,12 @@ mod tests {
         }
     }
 
-    fn base_config() -> RunnerConfig {
-        RunnerConfig {
+    fn base_config() -> WorkerConfig {
+        WorkerConfig {
             topic: "code.generate".into(),
-            runner_name: "generator".into(),
+            worker_name: "generator".into(),
             timeout_seconds: 5,
             idle_sleep: std::time::Duration::from_millis(10),
-            command: vec!["cat".into()],
             outcome_topics: OutcomeTopics {
                 success: "code.generated".into(),
                 failure: "code.generate.failed".into(),
@@ -305,7 +250,8 @@ mod tests {
         let follow_up = build_follow_up_message(
             &base_message(),
             &base_config(),
-            &CommandResult::Success {
+            "command",
+            &PluginResult::Success {
                 stdout: "done".into(),
                 stderr: String::new(),
                 exit_code: 0,
@@ -322,7 +268,8 @@ mod tests {
         let follow_up = build_follow_up_message(
             &base_message(),
             &base_config(),
-            &CommandResult::Failed {
+            "command",
+            &PluginResult::Failed {
                 stdout: String::new(),
                 stderr: "bad input".into(),
                 exit_code: 2,
@@ -338,7 +285,8 @@ mod tests {
         let follow_up = build_follow_up_message(
             &base_message(),
             &base_config(),
-            &CommandResult::TimedOut {
+            "command",
+            &PluginResult::TimedOut {
                 stdout: String::new(),
                 stderr: String::new(),
             },
@@ -349,14 +297,9 @@ mod tests {
     }
 
     #[test]
-    fn runner_config_derives_timeout_topic_from_watched_topic() {
-        let config = RunnerConfig::new(
-            "code.generate",
-            "code.generated",
-            "code.generate.failed",
-            5,
-            vec!["cat".into()],
-        );
+    fn worker_config_derives_timeout_topic_from_watched_topic() {
+        let config =
+            WorkerConfig::new("code.generate", "code.generated", "code.generate.failed", 5);
 
         assert_eq!(config.outcome_topics.timeout, "code.generate.timed_out");
     }

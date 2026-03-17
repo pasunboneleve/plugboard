@@ -1,22 +1,19 @@
 use plugboard::domain::NewMessage;
 use plugboard::exchange::Exchange;
 use plugboard::exchange::sqlite::SqliteExchange;
-use plugboard::runner::{CommandRunner, RunnerConfig};
+use plugboard::plugin::command::CommandPlugin;
+use plugboard::worker::{WorkerConfig, WorkerHost};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let exchange = SqliteExchange::open(".plugboard/example.db")?;
     exchange.init()?;
 
     let root = exchange.publish(NewMessage::new("code.generate", "hello world"))?;
-    let runner = CommandRunner::new(
+    let plugin = CommandPlugin::new(vec!["sh".into(), "-c".into(), "tr a-z A-Z".into()])?;
+    let runner = WorkerHost::new(
         &exchange,
-        RunnerConfig::new(
-            "code.generate",
-            "code.generated",
-            "code.generate.failed",
-            5,
-            vec!["sh".into(), "-c".into(), "tr a-z A-Z".into()],
-        ),
+        &plugin,
+        WorkerConfig::new("code.generate", "code.generated", "code.generate.failed", 5),
     );
 
     runner.run_once()?;

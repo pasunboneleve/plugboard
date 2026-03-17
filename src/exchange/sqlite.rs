@@ -212,7 +212,6 @@ impl Exchange for SqliteExchange {
                      SELECT 1
                      FROM claims
                      WHERE claims.message_id = messages.id
-                       AND claims.status = 'active'
                  )
                  ORDER BY created_at ASC, id ASC
                  LIMIT 1",
@@ -379,6 +378,11 @@ mod tests {
         let completed = exchange.complete_claim(&claim.id).unwrap();
         assert_eq!(completed.status, ClaimStatus::Completed);
         assert!(completed.completed_at.is_some());
+
+        let reclaimed = exchange
+            .claim_next("code.generate", "runner-2", 60)
+            .unwrap();
+        assert!(reclaimed.is_none());
 
         let repeated = exchange.complete_claim(&claim.id);
         assert!(repeated.is_err());

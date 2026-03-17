@@ -1,7 +1,8 @@
 use plugboard::domain::{ClaimStatus, NewMessage};
 use plugboard::exchange::Exchange;
 use plugboard::exchange::sqlite::SqliteExchange;
-use plugboard::runner::{CommandRunner, RunOnceOutcome, RunnerConfig};
+use plugboard::plugin::command::CommandPlugin;
+use plugboard::worker::{RunOnceOutcome, WorkerConfig, WorkerHost};
 
 #[test]
 fn runner_claims_executes_and_emits_follow_up() {
@@ -12,15 +13,11 @@ fn runner_claims_executes_and_emits_follow_up() {
         .publish(NewMessage::new("code.generate", "hello world"))
         .unwrap();
 
-    let runner = CommandRunner::new(
+    let plugin = CommandPlugin::new(vec!["sh".into(), "-c".into(), "tr a-z A-Z".into()]).unwrap();
+    let runner = WorkerHost::new(
         &exchange,
-        RunnerConfig::new(
-            "code.generate",
-            "code.generated",
-            "code.generate.failed",
-            5,
-            vec!["sh".into(), "-c".into(), "tr a-z A-Z".into()],
-        ),
+        &plugin,
+        WorkerConfig::new("code.generate", "code.generated", "code.generate.failed", 5),
     );
 
     let outcome = runner.run_once().unwrap();
@@ -48,19 +45,16 @@ fn runner_emits_failure_follow_up_for_non_zero_exit() {
         .publish(NewMessage::new("code.generate", "hello world"))
         .unwrap();
 
-    let runner = CommandRunner::new(
+    let plugin = CommandPlugin::new(vec![
+        "sh".into(),
+        "-c".into(),
+        "printf 'bad input' >&2; exit 2".into(),
+    ])
+    .unwrap();
+    let runner = WorkerHost::new(
         &exchange,
-        RunnerConfig::new(
-            "code.generate",
-            "code.generated",
-            "code.generate.failed",
-            5,
-            vec![
-                "sh".into(),
-                "-c".into(),
-                "printf 'bad input' >&2; exit 2".into(),
-            ],
-        ),
+        &plugin,
+        WorkerConfig::new("code.generate", "code.generated", "code.generate.failed", 5),
     );
 
     let outcome = runner.run_once().unwrap();
@@ -88,15 +82,11 @@ fn runner_emits_timeout_follow_up_for_long_command() {
         .publish(NewMessage::new("code.generate", "hello world"))
         .unwrap();
 
-    let runner = CommandRunner::new(
+    let plugin = CommandPlugin::new(vec!["sh".into(), "-c".into(), "sleep 2".into()]).unwrap();
+    let runner = WorkerHost::new(
         &exchange,
-        RunnerConfig::new(
-            "code.generate",
-            "code.generated",
-            "code.generate.failed",
-            1,
-            vec!["sh".into(), "-c".into(), "sleep 2".into()],
-        ),
+        &plugin,
+        WorkerConfig::new("code.generate", "code.generated", "code.generate.failed", 1),
     );
 
     let outcome = runner.run_once().unwrap();
