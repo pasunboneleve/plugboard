@@ -46,7 +46,11 @@ impl Plugin for CommandPlugin {
                     return Err(error.into());
                 }
             } else {
-                stdin.flush()?;
+                if let Err(error) = stdin.flush() {
+                    if error.kind() != ErrorKind::BrokenPipe {
+                        return Err(error.into());
+                    }
+                }
             }
             drop(stdin);
         }
