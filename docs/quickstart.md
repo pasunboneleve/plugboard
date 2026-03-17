@@ -58,7 +58,7 @@ named `example-review-plugin`. It reads the claimed message from
 For the exact command sequence, see
 [Write a Worker Plugin](howto/write-a-worker-plugin.md).
 
-You should see a `review.done` message whose body start like this:
+You should see a `review.done` message whose body starts like this:
 
 ```text
 Review status: ok
