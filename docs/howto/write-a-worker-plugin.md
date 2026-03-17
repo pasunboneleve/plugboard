@@ -113,7 +113,8 @@ The repository also includes a real Gemini adapter binary at
 It uses the installed Gemini CLI in non-interactive JSON mode:
 
 * reads the claimed message body from `stdin`
-* passes that same message body to `gemini --prompt ...`
+* invokes Gemini as `gemini --prompt <message body> --output-format json --approval-mode plan`
+* does not forward plugin `stdin` to the Gemini subprocess
 * extracts the response text from Gemini's JSON output
 * writes the final response to `stdout`
 * exits nonzero if Gemini returns an error
@@ -131,6 +132,7 @@ Prerequisites for the real adapter:
 
 The simplest headless Gemini check is:
 
-`gemini --prompt 'how much is 5+4?'`
+`gemini --prompt 'how much is 5+4?' --output-format json --approval-mode plan`
 
-That confirms your local CLI can run a one-shot prompt and exit.
+That confirms your local CLI can run the same one-shot Gemini mode used
+by `gemini-plugin`.

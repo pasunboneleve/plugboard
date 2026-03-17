@@ -30,9 +30,10 @@ enum GeminiOutput {
 }
 
 // Plugboard's worker contract feeds the claimed message body to this binary on stdin.
-// The Gemini CLI works cleanly in headless mode when that same body is passed as the
-// `-p/--prompt` value, so this adapter reads stdin once and maps it directly into the
-// Gemini subprocess arguments.
+// This adapter reads that stdin body once, then invokes Gemini separately with:
+//   gemini --prompt <message body> --output-format json --approval-mode plan
+// In other words, stdin is used at the Plugboard -> plugin boundary, but it is not
+// forwarded to the Gemini subprocess.
 fn build_gemini_args(prompt: &str, model: Option<&str>) -> Vec<String> {
     let mut args = vec![
         "--prompt".to_string(),

@@ -16,7 +16,9 @@ This guide uses the real `gemini-plugin` adapter in this repository.
 That adapter shells out to the Gemini CLI once per message, keeps the
 stdin to stdout contract intact, and exits after each response. It
 reads the Plugboard message body from `stdin`, then invokes Gemini with
-that body as `--prompt` so Gemini stays in headless mode.
+that body as `--prompt` plus `--output-format json` and
+`--approval-mode plan`. It does not forward the plugin's stdin stream to
+the Gemini subprocess.
 
 ## Prerequisites
 
@@ -30,11 +32,11 @@ complete a non-interactive request with your current auth and network
 setup before debugging Plugboard. A useful baseline is:
 
 ```bash
-gemini --prompt 'how much is 5+4?'
+gemini --prompt 'how much is 5+4?' --output-format json --approval-mode plan
 ```
 
-That is the simplest one-shot Gemini path and should return with a
-single textual answer.
+That is the same one-shot Gemini mode used by `gemini-plugin` and
+should return JSON with a `response` field.
 
 ## Runnable Example
 
@@ -75,7 +77,8 @@ The response proves the pattern:
 * Codex can send a request by publishing plain text to a topic
 * a Gemini-oriented worker can listen on that topic
 * the worker can hand the text to the Gemini adapter over stdin
-* the adapter can turn that message into `gemini --prompt <message>`
+* the adapter can turn that message into
+  `gemini --prompt <message> --output-format json --approval-mode plan`
 * the Gemini adapter can write the result to stdout
 * Plugboard can publish the reply to a follow-up topic for Codex to read
 
@@ -107,8 +110,8 @@ itself remains topic-based and agent-agnostic.
 
 The `gemini-plugin` binary invokes Gemini in non-interactive JSON mode
 once per message, using the Plugboard message body itself as the
-`--prompt` value. It then extracts the `response` field for Plugboard to
-publish.
+`--prompt` value. It then extracts the `response` field from Gemini's
+JSON output for Plugboard to publish.
 
 If your preferred Gemini setup is interactive or long-lived, wrap it
 so the worker still sees the same non-interactive stdin to stdout
