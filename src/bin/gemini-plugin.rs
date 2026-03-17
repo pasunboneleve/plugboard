@@ -176,6 +176,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_failure_payload() {
+        let payload = parse_gemini_output(
+            r#"{
+  "session_id": "session-1",
+  "error": {
+    "type": "Error",
+    "message": "auth failed",
+    "code": 1
+  }
+}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            payload,
+            GeminiOutput::Failure {
+                session_id: Some("session-1".into()),
+                error: super::GeminiError {
+                    message: "auth failed".into(),
+                    code: Some(1),
+                    r#type: Some("Error".into()),
+                },
+            }
+        );
+    }
+
+    #[test]
     fn prefers_json_error_message() {
         let stdout = r#"{
   "session_id": "session-1",
@@ -187,5 +214,21 @@ mod tests {
 }"#;
 
         assert_eq!(render_error_message(stdout, "ignored"), "auth failed");
+    }
+
+    #[test]
+    fn falls_back_to_stderr_when_stdout_is_not_json() {
+        assert_eq!(
+            render_error_message("not json", "gemini crashed"),
+            "gemini crashed"
+        );
+    }
+
+    #[test]
+    fn falls_back_to_stdout_when_stderr_is_empty() {
+        assert_eq!(
+            render_error_message("plain failure output", ""),
+            "plain failure output"
+        );
     }
 }

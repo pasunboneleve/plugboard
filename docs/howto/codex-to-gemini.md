@@ -18,16 +18,10 @@ stdin to stdout contract intact, and exits after each response.
 
 ## Prerequisites
 
-Before running this workflow, you need:
-
-* Gemini CLI installed on `PATH` as `gemini`, or set
-  `GEMINI_PLUGIN_CLI` to its path
-* one working Gemini auth method:
-  * `GEMINI_API_KEY`
-  * `GOOGLE_GENAI_USE_VERTEXAI=true`
-  * `GOOGLE_GENAI_USE_GCA=true`
-  * or an authenticated Gemini CLI config in `~/.gemini/settings.json`
-* optional model override via `GEMINI_PLUGIN_MODEL`
+Use the same prerequisites documented in
+[Write a Worker Plugin](write-a-worker-plugin.md#real-gemini-adapter).
+That section is the canonical checklist for the real `gemini-plugin`
+adapter.
 
 If the workflow fails or hangs, verify that the Gemini CLI itself can
 complete a non-interactive request with your current auth and network

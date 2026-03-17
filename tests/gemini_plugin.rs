@@ -65,3 +65,30 @@ exit 1
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("Gemini auth failed"));
 }
+
+#[test]
+fn gemini_plugin_reports_raw_stderr_when_output_is_not_json() {
+    let temp = write_fake_gemini_script(
+        r#"#!/bin/sh
+cat >/dev/null
+printf 'gemini transport failed' >&2
+exit 1
+"#,
+    );
+    let binary = env!("CARGO_BIN_EXE_gemini-plugin");
+
+    let output = Command::new(binary)
+        .env("GEMINI_PLUGIN_CLI", temp.path().join("fake-gemini"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child.stdin.take().unwrap().write_all(b"prompt body")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("gemini transport failed"));
+}
