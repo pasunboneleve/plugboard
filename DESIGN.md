@@ -206,6 +206,10 @@ text.
 Plugboard should not rely on parsing message bodies to decide which
 worker host should react.
 
+Agent-to-agent workflows follow the same rule: participants coordinate
+through topic conventions such as `gemini.review.request` and
+`gemini.review.done`, not through built-in identity routing.
+
 ## Activation model
 
 One of the central questions for Plugboard is how participants are

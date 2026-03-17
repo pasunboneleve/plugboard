@@ -60,6 +60,11 @@ The core does **not** own:
 Messages are routed by topic. Plugboard is agnostic to who or what
 consumes them.
 
+Agent-style workflows still use this same rule. A participant might
+publish to `gemini.review.request` and read from
+`gemini.review.done`, but those names are topic conventions rather
+than built-in identity routing.
+
 ## 2. Worker host layer
 
 A worker host is a long-running adapter runtime. It:

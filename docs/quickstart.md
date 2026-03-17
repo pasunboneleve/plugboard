@@ -49,6 +49,9 @@ Some tools, especially interactive CLIs, do not satisfy this contract.
 Those tools need a wrapper or dedicated plugin that turns them into a
 non-interactive command.
 
+For a concrete request/reply pattern using topic conventions, see
+[Codex to Gemini Workflow](howto/codex-to-gemini.md).
+
 ## Example Plugin Demo
 
 The repository also includes a deterministic example plugin binary

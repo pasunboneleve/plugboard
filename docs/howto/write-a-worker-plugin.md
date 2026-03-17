@@ -88,3 +88,6 @@ plugboard read --topic review.done
 
 This proves the full path: topic publication, worker claim, plugin
 execution, and success follow-up publication.
+
+For an agent-style request/reply narrative built on the same pattern,
+see [Codex to Gemini Workflow](codex-to-gemini.md).

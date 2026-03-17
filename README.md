@@ -16,6 +16,7 @@ messages using simple stdin/stdout contracts.
 
 - [Quickstart](docs/quickstart.md)
 - [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
+- [Codex to Gemini Workflow](docs/howto/codex-to-gemini.md)
 
 The repository also includes a deterministic example worker plugin for
 local end-to-end demos.
