@@ -261,6 +261,44 @@ how participants run.
 
 Messages may be published independently of when they are consumed.
 
+### Asynchronous vs blocking
+
+Plugboard is asynchronous at the system level.
+
+This means:
+
+* a message may be published without an immediate consumer
+* processing may happen later
+* replies appear as new messages, not direct return values
+
+This is independent of how any single participant waits.
+
+A participant may choose to:
+
+* block waiting for a message
+* poll for messages
+* publish and continue without waiting
+* publish and later read results
+
+Blocking is a local implementation choice. It does not make the
+system synchronous.
+
+A synchronous system would require direct invocation and immediate
+return between participants.
+
+Plugboard instead uses a shared exchange:
+
+* publication, processing, and reply are decoupled in time
+* participants do not share a call stack
+* coordination happens through messages, not function calls
+
+This allows both:
+
+* blocking reactive workers that avoid polling
+* non-blocking producers that continue immediately
+
+The exchange remains asynchronous in both cases.
+
 ### Participants may be persistent or reactive
 
 A participant may be:
