@@ -372,6 +372,10 @@ The system must not rely on filesystem notification delivery for
 correctness. A bounded re-check interval around blocking waits is
 acceptable because the database remains authoritative.
 
+In the current product, that bounded re-check defaults to 250 ms. So
+when notifier delivery fails, correctness falls back to effectively
+polling the database every 250 ms plus normal processing overhead.
+
 ### Design principle
 
 The exchange stores state.

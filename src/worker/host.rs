@@ -8,6 +8,8 @@ use crate::exchange::Exchange;
 use crate::plugin::{Plugin, PluginContext, PluginInput, PluginResult};
 use crate::util::id::new_id;
 
+pub const DEFAULT_IDLE_SLEEP: Duration = Duration::from_millis(250);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutcomeTopics {
     pub success: String,
@@ -49,7 +51,8 @@ impl WorkerConfig {
             topic,
             timeout_seconds,
             lease_seconds: default_lease_seconds(Some(timeout_seconds)),
-            idle_sleep: Duration::from_millis(250),
+            // This bounded re-check keeps workers correct when advisory wakeups are missed.
+            idle_sleep: DEFAULT_IDLE_SLEEP,
         }
     }
 }

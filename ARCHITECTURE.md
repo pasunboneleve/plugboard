@@ -419,6 +419,11 @@ Wakeups are advisory signals that tell workers it is worth retrying a
 claim. They do not assign messages and they do not replace the claim
 transaction.
 
+In the current implementation, correctness relies on bounded 250 ms
+re-checks around those advisory waits. Under notifier failure, the
+worst-case detection latency is therefore about 250 ms plus normal
+process and SQLite overhead.
+
 ## Local wakeup mechanism
 
 V1 should support a local wakeup mechanism for workers that want to

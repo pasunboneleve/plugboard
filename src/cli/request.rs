@@ -7,12 +7,12 @@ use crate::domain::{Message, NewMessage};
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
 
-const BLOCKING_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
+pub const DEFAULT_REPLY_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Args)]
 #[command(
     about = "Publish a request and wait for one correlated reply",
-    long_about = "Publish a plain-text request to a topic, then wait for the first correlated follow-up message in the same conversation on either the configured success or failure topic.\n\nThis is a thin request/reply helper at the edge. It uses the normal Plugboard message log, conversation_id propagation, and advisory wakeups. It does not add a new request entity or subscription model."
+    long_about = "Publish a plain-text request to a topic, then wait for the first correlated follow-up message in the same conversation on either the configured success or failure topic.\n\nThis is a thin request/reply helper at the edge. It uses the normal Plugboard message log, conversation_id propagation, and advisory wakeups. It does not add a new request entity or subscription model.\n\nNotifier wakeups are advisory only. Correctness currently relies on bounded re-checks every 250 ms by default, so worst-case reply detection latency under notifier failure is about 250 ms plus normal process and SQLite overhead."
 )]
 pub struct RequestArgs {
     #[arg(help = "Topic name to publish the request to")]
@@ -25,6 +25,12 @@ pub struct RequestArgs {
     pub body: Option<String>,
     #[arg(long, help = "Optional producer label to record with the request message")]
     pub producer: Option<String>,
+    #[arg(
+        long,
+        default_value_t = DEFAULT_REPLY_RECHECK_INTERVAL.as_millis() as u64,
+        help = "Bounded re-check interval in milliseconds for advisory wakeups while waiting for a reply; default 250 ms"
+    )]
+    pub recheck_ms: u64,
 }
 
 pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
@@ -47,7 +53,7 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
         &request,
         &args.success_topic,
         &args.failure_topic,
-        BLOCKING_RECHECK_INTERVAL,
+        Duration::from_millis(args.recheck_ms),
     )?;
     println!("{}", reply.body);
     if reply.topic == args.success_topic {

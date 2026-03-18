@@ -57,6 +57,8 @@ fn run_help_describes_worker_host() {
     assert!(stdout.contains("writes the claimed message body"));
     assert!(stdout.contains("default is 60 seconds"));
     assert!(stdout.contains("Raise it for slower backends such as Gemini"));
+    assert!(stdout.contains("bounded re-checks every 250 ms by default"));
+    assert!(stdout.contains("--idle-sleep-ms"));
     assert!(stdout.contains("Interactive tools usually need a wrapper"));
 }
 
@@ -102,6 +104,8 @@ fn publish_and_read_help_are_concrete() {
     let request_stdout = String::from_utf8_lossy(&request_help.stdout);
     assert!(request_stdout.contains("correlated follow-up message"));
     assert!(request_stdout.contains("same conversation"));
+    assert!(request_stdout.contains("bounded re-checks every 250 ms by default"));
+    assert!(request_stdout.contains("--recheck-ms"));
 }
 
 #[test]
