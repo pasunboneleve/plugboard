@@ -335,6 +335,17 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
     }
 }
 
+fn wait_for_file(path: &std::path::Path, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if path.exists() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!("timed out waiting for {}", path.display());
+}
+
 #[test]
 fn request_publishes_and_waits_for_success_reply() {
     let temp = tempfile::tempdir().unwrap();
@@ -733,7 +744,7 @@ fn persistent_worker_handles_rapid_publish_sequence_without_waiting_for_fallback
         .spawn()
         .unwrap();
 
-    thread::sleep(Duration::from_millis(50));
+    wait_for_file(&database, Duration::from_secs(2));
     let start = Instant::now();
     for body in ["first", "second", "third"] {
         let publish = Command::new(binary)
