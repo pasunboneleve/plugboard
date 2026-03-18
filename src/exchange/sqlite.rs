@@ -52,6 +52,13 @@ impl SqliteExchange {
             .map(|path| SqliteFileNotifier::new(path.clone()))
     }
 
+    fn emit_wakeup(&self) -> Result<()> {
+        if let Some(notifier) = self.notifier() {
+            notifier.emit()?;
+        }
+        Ok(())
+    }
+
     fn load_message(connection: &Connection, message_id: &str) -> Result<Option<Message>> {
         Ok(connection
             .query_row(
@@ -136,6 +143,7 @@ impl SqliteExchange {
         let claim = Self::load_claim(&transaction, claim_id)?
             .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
         transaction.commit()?;
+        self.emit_wakeup()?;
         Ok(claim)
     }
 
@@ -209,6 +217,7 @@ impl SqliteExchange {
         let claim = Self::load_claim(&transaction, &claim_id)?
             .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
         transaction.commit()?;
+        self.emit_wakeup()?;
         Ok(Some((message, claim)))
     }
 }
@@ -256,6 +265,7 @@ impl Exchange for SqliteExchange {
         let stored = Self::load_message(&transaction, &id)?
             .ok_or_else(|| PlugboardError::NotFound(format!("message {id}")))?;
         transaction.commit()?;
+        self.emit_wakeup()?;
         Ok(stored)
     }
 

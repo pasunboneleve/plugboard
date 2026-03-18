@@ -614,11 +614,18 @@ fn request_wakes_run_once_worker_and_returns_reply_on_fresh_topic() {
         .spawn()
         .unwrap();
 
+    let start = Instant::now();
     let request_output = wait_with_timeout(request, Duration::from_secs(10));
+    let elapsed = start.elapsed();
     assert!(request_output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&request_output.stdout).trim(),
         "WAKE ME UP"
+    );
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "expected notifier-success request/reply path to finish well below fallback ceiling, got {:?}",
+        elapsed
     );
 
     let worker_output = wait_with_timeout(worker, Duration::from_secs(10));
@@ -673,11 +680,18 @@ fn request_wakes_persistent_worker_and_returns_reply_on_fresh_topic() {
         .spawn()
         .unwrap();
 
+    let start = Instant::now();
     let request_output = wait_with_timeout(request, Duration::from_secs(10));
+    let elapsed = start.elapsed();
     assert!(request_output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&request_output.stdout).trim(),
         "FRESH TOPIC"
+    );
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "expected persistent notifier-success request/reply path to finish well below fallback ceiling, got {:?}",
+        elapsed
     );
 
     let _ = worker.kill();
@@ -687,6 +701,89 @@ fn request_wakes_persistent_worker_and_returns_reply_on_fresh_topic() {
         "persistent worker stderr:\n{}",
         String::from_utf8_lossy(&worker_output.stderr),
     );
+}
+
+#[test]
+fn persistent_worker_handles_rapid_publish_sequence_without_waiting_for_fallback() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+    let request_topic = unique_topic("review.request");
+    let success_topic = format!("{request_topic}.done");
+    let failure_topic = format!("{request_topic}.failed");
+
+    let mut worker = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--topic",
+            &request_topic,
+            "--success-topic",
+            &success_topic,
+            "--failure-topic",
+            &failure_topic,
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(50));
+    let start = Instant::now();
+    for body in ["first", "second", "third"] {
+        let publish = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "publish",
+                &request_topic,
+                body,
+            ])
+            .output()
+            .unwrap();
+        assert!(publish.status.success());
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let read = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "read",
+                "--topic",
+                &success_topic,
+            ])
+            .output()
+            .unwrap();
+        assert!(read.status.success());
+        let stdout = String::from_utf8_lossy(&read.stdout);
+        if stdout.matches(&success_topic).count() == 3 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "worker did not drain rapid publish sequence in time\nstdout:\n{}",
+                stdout
+            );
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(300),
+        "expected rapid notifier path to drain without leaning on repeated 250 ms fallback waits, got {:?}",
+        elapsed
+    );
+
+    worker.kill().unwrap();
+    let _ = worker.wait_with_output().unwrap();
 }
 
 #[test]

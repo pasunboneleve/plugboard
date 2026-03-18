@@ -1,3 +1,5 @@
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Instant;
@@ -25,6 +27,21 @@ impl SqliteFileNotifier {
         Self {
             database_path: database_path.into(),
         }
+    }
+
+    pub fn emit(&self) -> Result<()> {
+        let wake_path = wake_marker_path(&self.database_path);
+        if let Some(parent) = wake_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(wake_path)?;
+        file.write_all(b".")?;
+        file.flush()?;
+        Ok(())
     }
 }
 
@@ -93,9 +110,18 @@ fn related_sqlite_paths(database_path: &Path) -> Vec<PathBuf> {
     if let Some(file_name) = database_path.file_name().and_then(|name| name.to_str()) {
         paths.push(database_path.with_file_name(format!("{file_name}-wal")));
         paths.push(database_path.with_file_name(format!("{file_name}-shm")));
+        paths.push(wake_marker_path(database_path));
     }
 
     paths
+}
+
+fn wake_marker_path(database_path: &Path) -> PathBuf {
+    let file_name = database_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("plugboard.db");
+    database_path.with_file_name(format!("{file_name}.wake"))
 }
 
 fn matches_related_path(candidate: &Path, watched_paths: &[PathBuf]) -> bool {
@@ -108,7 +134,7 @@ fn remaining_until(deadline: Instant, now: Instant) -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use super::{matches_related_path, related_sqlite_paths, remaining_until};
+    use super::{matches_related_path, related_sqlite_paths, remaining_until, wake_marker_path};
     use std::path::Path;
     use std::time::{Duration, Instant};
 
@@ -118,6 +144,7 @@ mod tests {
         assert!(paths.contains(&"/tmp/plugboard.db".into()));
         assert!(paths.contains(&"/tmp/plugboard.db-wal".into()));
         assert!(paths.contains(&"/tmp/plugboard.db-shm".into()));
+        assert!(paths.contains(&"/tmp/plugboard.db.wake".into()));
     }
 
     #[test]
@@ -128,7 +155,19 @@ mod tests {
             Path::new("/tmp/plugboard.db-wal"),
             &watched
         ));
+        assert!(matches_related_path(
+            Path::new("/tmp/plugboard.db.wake"),
+            &watched
+        ));
         assert!(!matches_related_path(Path::new("/tmp/other.db"), &watched));
+    }
+
+    #[test]
+    fn derives_wake_marker_path() {
+        assert_eq!(
+            wake_marker_path(Path::new("/tmp/plugboard.db")),
+            Path::new("/tmp/plugboard.db.wake")
+        );
     }
 
     #[test]
