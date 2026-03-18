@@ -37,9 +37,10 @@ impl SqliteFileNotifier {
 
         let mut file = OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(true)
             .open(wake_path)?;
-        file.write_all(b".")?;
+        file.write_all(b"wake\n")?;
         file.flush()?;
         Ok(())
     }
@@ -134,7 +135,11 @@ fn remaining_until(deadline: Instant, now: Instant) -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use super::{matches_related_path, related_sqlite_paths, remaining_until, wake_marker_path};
+    use super::{
+        SqliteFileNotifier, matches_related_path, related_sqlite_paths, remaining_until,
+        wake_marker_path,
+    };
+    use std::fs;
     use std::path::Path;
     use std::time::{Duration, Instant};
 
@@ -168,6 +173,23 @@ mod tests {
             wake_marker_path(Path::new("/tmp/plugboard.db")),
             Path::new("/tmp/plugboard.db.wake")
         );
+    }
+
+    #[test]
+    fn emit_overwrites_wake_marker_instead_of_appending() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("plugboard.db");
+        let wake_path = wake_marker_path(&database);
+        let notifier = SqliteFileNotifier::new(&database);
+
+        notifier.emit().unwrap();
+        let first = fs::read(&wake_path).unwrap();
+        notifier.emit().unwrap();
+        let second = fs::read(&wake_path).unwrap();
+
+        assert_eq!(first, b"wake\n");
+        assert_eq!(second, b"wake\n");
+        assert_eq!(second.len(), b"wake\n".len());
     }
 
     #[test]
