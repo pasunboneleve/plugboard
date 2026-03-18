@@ -106,6 +106,7 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
             &self.config.topic,
             &self.config.worker_name,
             self.config.timeout_seconds as i64,
+            self.config.idle_sleep,
         )?;
 
         let context = PluginContext {

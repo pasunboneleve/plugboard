@@ -274,6 +274,7 @@ impl Exchange for SqliteExchange {
         topic: &str,
         runner_name: &str,
         lease_seconds: i64,
+        idle_sleep: Duration,
     ) -> Result<(Message, Claim)> {
         loop {
             if let Some(notifier) = self.notifier() {
@@ -288,7 +289,7 @@ impl Exchange for SqliteExchange {
             if let Some(claimed) = self.claim_next_inner(topic, runner_name, lease_seconds)? {
                 return Ok(claimed);
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(idle_sleep);
         }
     }
 
@@ -505,7 +506,12 @@ mod tests {
                 let blocking_exchange = SqliteExchange::open(&database).unwrap();
                 blocking_exchange.init().unwrap();
                 blocking_exchange
-                    .claim_next_blocking("review.request", "worker-1", 5)
+                    .claim_next_blocking(
+                        "review.request",
+                        "worker-1",
+                        5,
+                        Duration::from_millis(10),
+                    )
                     .unwrap()
             });
 

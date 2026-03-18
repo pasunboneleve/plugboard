@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::time::Instant;
 use std::time::Duration;
 
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
@@ -58,13 +59,21 @@ struct FileWaitTicket {
 impl WaitTicket for FileWaitTicket {
     fn wait(self: Box<Self>, timeout: Option<Duration>) -> Result<bool> {
         let ticket = *self;
+        let deadline = timeout.map(|timeout| Instant::now() + timeout);
         loop {
             let event = match timeout {
-                Some(timeout) => match ticket.receiver.recv_timeout(timeout) {
+                Some(_) => {
+                    let Some(remaining) = deadline.and_then(|deadline| {
+                        remaining_until(deadline, Instant::now())
+                    }) else {
+                        return Ok(false);
+                    };
+                    match ticket.receiver.recv_timeout(remaining) {
                     Ok(event) => event?,
                     Err(RecvTimeoutError::Timeout) => return Ok(false),
                     Err(RecvTimeoutError::Disconnected) => return Ok(false),
-                },
+                }
+                }
                 None => match ticket.receiver.recv() {
                     Ok(event) => event?,
                     Err(_) => return Ok(false),
@@ -93,10 +102,15 @@ fn matches_related_path(candidate: &Path, watched_paths: &[PathBuf]) -> bool {
     watched_paths.iter().any(|path| candidate == path)
 }
 
+fn remaining_until(deadline: Instant, now: Instant) -> Option<Duration> {
+    deadline.checked_duration_since(now)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{matches_related_path, related_sqlite_paths};
+    use super::{matches_related_path, related_sqlite_paths, remaining_until};
     use std::path::Path;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn expands_sqlite_related_paths() {
@@ -115,5 +129,14 @@ mod tests {
             &watched
         ));
         assert!(!matches_related_path(Path::new("/tmp/other.db"), &watched));
+    }
+
+    #[test]
+    fn remaining_until_respects_deadline() {
+        let start = Instant::now();
+        let deadline = start + Duration::from_millis(50);
+        assert!(remaining_until(deadline, start).unwrap() <= Duration::from_millis(50));
+        assert_eq!(remaining_until(deadline, deadline), Some(Duration::ZERO));
+        assert_eq!(remaining_until(deadline, deadline + Duration::from_millis(1)), None);
     }
 }

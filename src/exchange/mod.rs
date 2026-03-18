@@ -24,6 +24,7 @@ pub trait Exchange {
         topic: &str,
         runner_name: &str,
         lease_seconds: i64,
+        idle_sleep: Duration,
     ) -> Result<(Message, Claim)>;
     fn wait_for_change(&self, timeout: Option<Duration>) -> Result<bool>;
     fn complete_claim(&self, claim_id: &str) -> Result<Claim>;
