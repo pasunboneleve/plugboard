@@ -15,6 +15,8 @@ REPO = Path(__file__).resolve().parents[1]
 PLUGBOARD = REPO / "target" / "debug" / "plugboard"
 EXAMPLE_PLUGIN = REPO / "target" / "debug" / "example-review-plugin"
 BODY = "Explain Rust ownership in one short paragraph."
+READY_TIMEOUT_SECONDS = 5.0
+READY_POLL_INTERVAL_SECONDS = 0.01
 
 
 def ensure_binary(path: Path) -> None:
@@ -34,6 +36,44 @@ def direct_once() -> float:
         check=True,
     )
     return round((time.time() - start) * 1000, 3)
+
+
+def wait_for_worker_ready(worker: subprocess.Popen[str], database_path: str) -> None:
+    deadline = time.time() + READY_TIMEOUT_SECONDS
+
+    while time.time() < deadline:
+        if worker.poll() is not None:
+            stdout, stderr = worker.communicate()
+            raise RuntimeError(
+                "worker exited before becoming ready\n"
+                f"stdout:\n{stdout}\n"
+                f"stderr:\n{stderr}"
+            )
+
+        try:
+            connection = sqlite3.connect(database_path)
+            cursor = connection.cursor()
+            tables = {
+                row[0]
+                for row in cursor.execute(
+                    "select name from sqlite_master where type = 'table'"
+                ).fetchall()
+            }
+            connection.close()
+            if {"messages", "claims"} <= tables:
+                return
+        except sqlite3.Error:
+            pass
+
+        time.sleep(READY_POLL_INTERVAL_SECONDS)
+
+    worker.terminate()
+    try:
+        worker.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        worker.kill()
+        worker.wait(timeout=5)
+    raise RuntimeError("worker did not initialize the exchange before the readiness timeout")
 
 
 def exchange_once(persistent: bool) -> dict[str, str | float]:
@@ -67,7 +107,7 @@ def exchange_once(persistent: bool) -> dict[str, str | float]:
         stderr=subprocess.PIPE,
         text=True,
     )
-    time.sleep(0.2)
+    wait_for_worker_ready(worker, db.name)
 
     start = time.time()
     request = subprocess.run(

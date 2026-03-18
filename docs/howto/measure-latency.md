@@ -68,13 +68,13 @@ latency is perfectly stable to the millisecond.
 Observed wall-clock times:
 
 ```text
-0.913 ms, 0.856 ms, 0.833 ms, 0.720 ms, 0.752 ms
+1.017 ms, 0.930 ms, 0.838 ms, 0.872 ms, 0.935 ms
 ```
 
 Median:
 
 ```text
-0.833 ms
+0.930 ms
 ```
 
 This is the lower bound. It includes neither exchange I/O nor worker
@@ -85,30 +85,30 @@ activation.
 Observed end-to-end request/reply times:
 
 ```text
-25.220 ms, 22.314 ms, 24.959 ms, 7.873 ms, 7.085 ms
+11.360 ms, 8.144 ms, 8.608 ms, 7.180 ms, 10.629 ms
 ```
 
 Median:
 
 ```text
-22.314 ms
+8.608 ms
 ```
 
 One sample breakdown:
 
 ```text
-request created_at   2026-03-18T22:51:28.353738263Z
-claim claimed_at     2026-03-18T22:51:28.356096237Z
-claim completed_at   2026-03-18T22:51:28.361532260Z
-follow-up created_at 2026-03-18T22:51:28.362856214Z
-request -> reply     25.220 ms
+request created_at   2026-03-18T22:55:58.371369596Z
+claim claimed_at     2026-03-18T22:55:58.372091557Z
+claim completed_at   2026-03-18T22:55:58.373614719Z
+follow-up created_at 2026-03-18T22:55:58.373938949Z
+request -> reply     11.360 ms
 ```
 
 Interpretation:
 
-* publish -> claim: about 2.4 ms
-* claim -> completed: about 5.4 ms
-* completed -> follow-up: about 1.3 ms
+* publish -> claim: about 0.7 ms
+* claim -> completed: about 1.5 ms
+* completed -> follow-up: about 0.3 ms
 * the remaining time is mostly caller and process overhead around `request` and the short-lived worker
 
 Reactive one-shot mode avoids worker loitering and now avoids relying
@@ -120,30 +120,30 @@ when a short-lived process is acceptable.
 Observed end-to-end request/reply times:
 
 ```text
-11.882 ms, 8.445 ms, 20.570 ms, 22.699 ms, 22.838 ms
+7.763 ms, 9.392 ms, 10.938 ms, 17.244 ms, 18.765 ms
 ```
 
 Median:
 
 ```text
-20.570 ms
+10.938 ms
 ```
 
 One sample breakdown:
 
 ```text
-request created_at   2026-03-18T22:51:29.448183971Z
-claim claimed_at     2026-03-18T22:51:29.449090024Z
-claim completed_at   2026-03-18T22:51:29.451405195Z
-follow-up created_at 2026-03-18T22:51:29.452122107Z
-request -> reply     11.882 ms
+request created_at   2026-03-18T22:55:58.474294043Z
+claim claimed_at     2026-03-18T22:55:58.474808494Z
+claim completed_at   2026-03-18T22:55:58.476220892Z
+follow-up created_at 2026-03-18T22:55:58.476575798Z
+request -> reply     7.763 ms
 ```
 
 Interpretation:
 
-* publish -> claim: about 0.9 ms
-* claim -> completed: about 2.3 ms
-* completed -> follow-up: about 0.7 ms
+* publish -> claim: about 0.5 ms
+* claim -> completed: about 1.4 ms
+* completed -> follow-up: about 0.35 ms
 * the worker is already resident, so activation overhead can be lower or more stable when a long-lived process is acceptable
 
 ## What these numbers show
