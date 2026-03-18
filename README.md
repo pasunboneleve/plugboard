@@ -1,6 +1,8 @@
 Plugboard
 =========
 
+[![cargo-test](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml/badge.svg)](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml)
+
 **Plugboard** is a local textual exchange for cooperating programs.
 
 It keeps the core small and Unix-like: publish text, read text, claim
