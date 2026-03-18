@@ -140,3 +140,25 @@ The simplest headless Gemini check is:
 
 That confirms your local CLI can run the same one-shot Gemini mode used
 by `gemini-plugin`.
+
+## Local Ollama Adapter
+
+The repository also includes a local-model adapter at
+`src/bin/ollama-plugin.rs`.
+
+It uses a local Ollama service rather than a hosted agent CLI:
+
+* reads the claimed message body from `stdin`
+* posts that text to `POST /api/generate` on a local Ollama service
+* defaults to model `gemma3:1b`
+* writes the final generated text to `stdout`
+* exits nonzero if the local model backend returns an error
+
+This is useful when you want Plugboard to feel responsive in local demos
+or development loops.
+
+Use these docs for the full workflow:
+
+* [Install a Local Model Backend](install-local-model-backend.md)
+* [Plugboard with a Local Model](plugboard-with-local-model.md)
+* [Local Model Workflow](local-model-workflow.md)

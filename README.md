@@ -16,18 +16,31 @@ messages using simple stdin/stdout contracts.
 
 - [Quickstart](docs/quickstart.md)
 - [Plugin Backend Options](docs/plugin-backends.md)
+- [Install a Local Model Backend](docs/howto/install-local-model-backend.md)
+- [Plugboard with a Local Model](docs/howto/plugboard-with-local-model.md)
+- [Local Model Workflow](docs/howto/local-model-workflow.md)
 - [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
 - [Codex to Gemini Workflow](docs/howto/codex-to-gemini.md)
 
-The repository includes both a deterministic demo plugin for local
-end-to-end testing and a real Gemini adapter plugin for actual Gemini
-request/reply workflows.
+The repository includes a deterministic demo plugin, a real Gemini
+adapter, and a local-model adapter built around Ollama for low-latency
+local request/reply workflows.
 
 Plugboard can be useful with several backend styles: simple stateless
 transforms, low-latency local model plugins, plugins that talk to
 already-running agents or warm backends, and direct API plugins for
 hosted services. Those are plugin-layer choices rather than protocol
 changes in the core exchange.
+
+For the common passive request/reply case, the CLI also includes a thin
+edge helper:
+
+```text
+plugboard request --topic ... --success-topic ... --failure-topic ... --body ...
+```
+
+It publishes a request, waits for the first correlated follow-up in the
+same conversation, prints the reply body, and exits.
 
 Three-layer model
 -----------------

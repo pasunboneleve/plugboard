@@ -1,12 +1,15 @@
 use std::cell::RefCell;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::domain::{Claim, ClaimStatus, Message, NewMessage};
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
+use crate::notifier::{Notifier, SqliteFileNotifier};
 use crate::util::id::new_id;
 use crate::util::time::{add_seconds, format_timestamp, now_timestamp, now_utc};
 
@@ -14,6 +17,7 @@ const SCHEMA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.s
 
 pub struct SqliteExchange {
     connection: RefCell<Connection>,
+    database_path: Option<PathBuf>,
 }
 
 impl SqliteExchange {
@@ -28,6 +32,7 @@ impl SqliteExchange {
 
         Ok(Self {
             connection: RefCell::new(connection),
+            database_path: Some(path.to_path_buf()),
         })
     }
 
@@ -37,7 +42,14 @@ impl SqliteExchange {
 
         Ok(Self {
             connection: RefCell::new(connection),
+            database_path: None,
         })
+    }
+
+    fn notifier(&self) -> Option<SqliteFileNotifier> {
+        self.database_path
+            .as_ref()
+            .map(|path| SqliteFileNotifier::new(path.clone()))
     }
 
     fn load_message(connection: &Connection, message_id: &str) -> Result<Option<Message>> {
@@ -55,13 +67,49 @@ impl SqliteExchange {
     fn load_claim(connection: &Connection, claim_id: &str) -> Result<Option<Claim>> {
         Ok(connection
             .query_row(
-                "SELECT id, message_id, runner_name, claimed_at, lease_until, status, completed_at
+                "SELECT id, message_id, worker_group, worker_instance_id, claimed_at, lease_until, status, completed_at
                  FROM claims
                  WHERE id = ?1",
                 params![claim_id],
                 map_claim,
             )
             .optional()?)
+    }
+
+    fn ensure_claim_columns(connection: &Connection) -> Result<()> {
+        let mut statement = connection.prepare("PRAGMA table_info(claims)")?;
+        let columns = statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        if !columns.iter().any(|column| column == "worker_group") {
+            connection.execute(
+                "ALTER TABLE claims ADD COLUMN worker_group TEXT NOT NULL DEFAULT ''",
+                [],
+            )?;
+        }
+
+        if !columns.iter().any(|column| column == "worker_instance_id") {
+            connection.execute(
+                "ALTER TABLE claims ADD COLUMN worker_instance_id TEXT NOT NULL DEFAULT ''",
+                [],
+            )?;
+        }
+
+        connection.execute(
+            "UPDATE claims
+             SET worker_group = runner_name
+             WHERE worker_group = ''",
+            [],
+        )?;
+        connection.execute(
+            "UPDATE claims
+             SET worker_instance_id = id
+             WHERE worker_instance_id = ''",
+            [],
+        )?;
+
+        Ok(())
     }
 
     fn transition_claim(&self, claim_id: &str, next_status: ClaimStatus) -> Result<Claim> {
@@ -90,11 +138,86 @@ impl SqliteExchange {
         transaction.commit()?;
         Ok(claim)
     }
+
+    fn claim_next_inner(
+        &self,
+        topic: &str,
+        worker_group: &str,
+        worker_instance_id: &str,
+        lease_seconds: i64,
+    ) -> Result<Option<(Message, Claim)>> {
+        let mut connection = self.connection.borrow_mut();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let claimed_at_time = now_utc();
+        let claimed_at = format_timestamp(claimed_at_time)?;
+
+        transaction.execute(
+            "DELETE FROM claims
+             WHERE status = 'active' AND lease_until <= ?1",
+            params![claimed_at],
+        )?;
+
+        let candidate = transaction
+            .query_row(
+                "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
+                 FROM messages
+                 WHERE topic = ?1
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM claims
+                     WHERE claims.message_id = messages.id
+                 )
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT 1",
+                params![topic],
+                map_message,
+            )
+            .optional()?;
+
+        let Some(message) = candidate else {
+            transaction.commit()?;
+            return Ok(None);
+        };
+
+        let claim_id = new_id();
+        let lease_until = format_timestamp(add_seconds(claimed_at_time, lease_seconds))?;
+
+        transaction.execute(
+            "INSERT INTO claims (
+                 id,
+                 message_id,
+                 runner_name,
+                 worker_group,
+                 worker_instance_id,
+                 claimed_at,
+                 lease_until,
+                 status,
+                 completed_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', NULL)",
+            params![
+                claim_id,
+                message.id,
+                worker_group,
+                worker_group,
+                worker_instance_id,
+                claimed_at,
+                lease_until,
+            ],
+        )?;
+
+        let claim = Self::load_claim(&transaction, &claim_id)?
+            .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
+        transaction.commit()?;
+        Ok(Some((message, claim)))
+    }
 }
 
 impl Exchange for SqliteExchange {
     fn init(&self) -> Result<()> {
-        self.connection.borrow_mut().execute_batch(SCHEMA)?;
+        let connection = self.connection.borrow_mut();
+        connection.execute_batch(SCHEMA)?;
+        Self::ensure_claim_columns(&connection)?;
         Ok(())
     }
 
@@ -184,7 +307,7 @@ impl Exchange for SqliteExchange {
     fn claims_for_message(&self, message_id: &str) -> Result<Vec<Claim>> {
         let connection = self.connection.borrow();
         let mut statement = connection.prepare(
-            "SELECT id, message_id, runner_name, claimed_at, lease_until, status, completed_at
+            "SELECT id, message_id, worker_group, worker_instance_id, claimed_at, lease_until, status, completed_at
              FROM claims
              WHERE message_id = ?1
              ORDER BY claimed_at ASC, id ASC",
@@ -198,54 +321,58 @@ impl Exchange for SqliteExchange {
     fn claim_next(
         &self,
         topic: &str,
-        runner_name: &str,
+        worker_group: &str,
+        worker_instance_id: &str,
         lease_seconds: i64,
     ) -> Result<Option<(Message, Claim)>> {
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let candidate = transaction
-            .query_row(
-                "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
-                 FROM messages
-                 WHERE topic = ?1
-                 AND NOT EXISTS (
-                     SELECT 1
-                     FROM claims
-                     WHERE claims.message_id = messages.id
-                 )
-                 ORDER BY created_at ASC, id ASC
-                 LIMIT 1",
-                params![topic],
-                map_message,
-            )
-            .optional()?;
+        self.claim_next_inner(topic, worker_group, worker_instance_id, lease_seconds)
+    }
 
-        let Some(message) = candidate else {
-            transaction.commit()?;
+    fn claim_next_blocking(
+        &self,
+        topic: &str,
+        worker_group: &str,
+        worker_instance_id: &str,
+        lease_seconds: i64,
+        idle_sleep: Duration,
+    ) -> Result<(Message, Claim)> {
+        loop {
+            if let Some(ticket) = self.prepare_wait_for_change()? {
+                if let Some(claimed) =
+                    self.claim_next_inner(topic, worker_group, worker_instance_id, lease_seconds)?
+                {
+                    return Ok(claimed);
+                }
+                ticket.wait(Some(idle_sleep))?;
+                continue;
+            }
+
+            if let Some(claimed) =
+                self.claim_next_inner(topic, worker_group, worker_instance_id, lease_seconds)?
+            {
+                return Ok(claimed);
+            }
+            std::thread::sleep(idle_sleep);
+        }
+    }
+
+    fn prepare_wait_for_change(&self) -> Result<Option<Box<dyn crate::notifier::WaitTicket>>> {
+        let Some(notifier) = self.notifier() else {
             return Ok(None);
         };
 
-        let claim_id = new_id();
-        let claimed_at_time = now_utc();
-        let claimed_at = format_timestamp(claimed_at_time)?;
-        let lease_until = format_timestamp(add_seconds(claimed_at_time, lease_seconds))?;
+        notifier.prepare_wait().map(Some)
+    }
 
-        transaction.execute(
-            "INSERT INTO claims (id, message_id, runner_name, claimed_at, lease_until, status, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'active', NULL)",
-            params![
-                claim_id,
-                message.id,
-                runner_name,
-                claimed_at,
-                lease_until,
-            ],
-        )?;
+    fn wait_for_change(&self, timeout: Option<Duration>) -> Result<bool> {
+        let Some(ticket) = self.prepare_wait_for_change()? else {
+            if let Some(timeout) = timeout {
+                std::thread::sleep(timeout);
+            }
+            return Ok(false);
+        };
 
-        let claim = Self::load_claim(&transaction, &claim_id)?
-            .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
-        transaction.commit()?;
-        Ok(Some((message, claim)))
+        ticket.wait(timeout)
     }
 
     fn complete_claim(&self, claim_id: &str) -> Result<Claim> {
@@ -275,22 +402,23 @@ fn map_message(row: &Row<'_>) -> rusqlite::Result<Message> {
 }
 
 fn map_claim(row: &Row<'_>) -> rusqlite::Result<Claim> {
-    let status: String = row.get(5)?;
+    let status: String = row.get(6)?;
 
     Ok(Claim {
         id: row.get(0)?,
         message_id: row.get(1)?,
-        runner_name: row.get(2)?,
-        claimed_at: row.get(3)?,
-        lease_until: row.get(4)?,
+        worker_group: row.get(2)?,
+        worker_instance_id: row.get(3)?,
+        claimed_at: row.get(4)?,
+        lease_until: row.get(5)?,
         status: ClaimStatus::parse(&status).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
-                5,
+                6,
                 rusqlite::types::Type::Text,
                 Box::new(error),
             )
         })?,
-        completed_at: row.get(6)?,
+        completed_at: row.get(7)?,
     })
 }
 
@@ -300,6 +428,10 @@ mod tests {
     use crate::domain::ClaimStatus;
     use crate::domain::NewMessage;
     use crate::exchange::Exchange;
+    use crate::util::time::{format_timestamp, now_utc};
+    use rusqlite::params;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn initializes_schema() {
@@ -351,14 +483,109 @@ mod tests {
             .unwrap();
 
         let first = exchange
-            .claim_next("code.generate", "runner-1", 60)
+            .claim_next("code.generate", "runner-group", "instance-1", 60)
             .unwrap()
             .unwrap();
         let second = exchange
-            .claim_next("code.generate", "runner-2", 60)
+            .claim_next("code.generate", "runner-group", "instance-2", 60)
             .unwrap();
 
         assert_eq!(first.0.id, message.id);
+        assert!(second.is_none());
+    }
+
+    #[test]
+    fn multiple_workers_in_same_group_can_claim_different_messages() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+        exchange
+            .publish(NewMessage::new("code.generate", "first"))
+            .unwrap();
+        exchange
+            .publish(NewMessage::new("code.generate", "second"))
+            .unwrap();
+
+        let first = exchange
+            .claim_next("code.generate", "ollama-review", "instance-1", 60)
+            .unwrap()
+            .unwrap();
+        let second = exchange
+            .claim_next("code.generate", "ollama-review", "instance-2", 60)
+            .unwrap()
+            .unwrap();
+
+        assert_ne!(first.0.id, second.0.id);
+        assert_eq!(first.1.worker_group, "ollama-review");
+        assert_eq!(second.1.worker_group, "ollama-review");
+        assert_eq!(first.1.worker_instance_id, "instance-1");
+        assert_eq!(second.1.worker_instance_id, "instance-2");
+    }
+
+    #[test]
+    fn expired_active_claims_are_deleted_during_claim_and_do_not_block() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+        let message = exchange
+            .publish(NewMessage::new("code.generate", "generate"))
+            .unwrap();
+
+        let expired_lease = format_timestamp(now_utc() - Duration::from_secs(5)).unwrap();
+        exchange
+            .connection
+            .borrow_mut()
+            .execute(
+                "INSERT INTO claims (
+                     id,
+                     message_id,
+                     runner_name,
+                     worker_group,
+                     worker_instance_id,
+                     claimed_at,
+                     lease_until,
+                     status,
+                     completed_at
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', NULL)",
+                params![
+                    "stale-claim",
+                    message.id,
+                    "ollama-review",
+                    "ollama-review",
+                    "instance-old",
+                    expired_lease,
+                    expired_lease,
+                ],
+            )
+            .unwrap();
+
+        let (_, replacement) = exchange
+            .claim_next("code.generate", "ollama-review", "instance-new", 60)
+            .unwrap()
+            .unwrap();
+
+        let claims = exchange.claims_for_message(&message.id).unwrap();
+        assert_eq!(claims.len(), 1);
+        assert_eq!(replacement.worker_instance_id, "instance-new");
+        assert_eq!(replacement.status, ClaimStatus::Active);
+    }
+
+    #[test]
+    fn live_claim_from_another_instance_blocks_double_claim() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+        exchange
+            .publish(NewMessage::new("code.generate", "generate"))
+            .unwrap();
+
+        let first = exchange
+            .claim_next("code.generate", "ollama-review", "instance-1", 60)
+            .unwrap()
+            .unwrap();
+        let second = exchange
+            .claim_next("code.generate", "ollama-review", "instance-2", 60)
+            .unwrap();
+
+        assert_eq!(first.1.status, ClaimStatus::Active);
         assert!(second.is_none());
     }
 
@@ -371,7 +598,7 @@ mod tests {
             .unwrap();
 
         let (_, claim) = exchange
-            .claim_next("code.generate", "runner-1", 60)
+            .claim_next("code.generate", "runner-group", "instance-1", 60)
             .unwrap()
             .unwrap();
 
@@ -380,7 +607,7 @@ mod tests {
         assert!(completed.completed_at.is_some());
 
         let reclaimed = exchange
-            .claim_next("code.generate", "runner-2", 60)
+            .claim_next("code.generate", "runner-group", "instance-2", 60)
             .unwrap();
         assert!(reclaimed.is_none());
 
@@ -401,11 +628,11 @@ mod tests {
             .unwrap();
 
         let (_, failed_claim) = exchange
-            .claim_next("code.generate", "runner-1", 60)
+            .claim_next("code.generate", "runner-group", "instance-1", 60)
             .unwrap()
             .unwrap();
         let (_, timed_out_claim) = exchange
-            .claim_next("code.generate", "runner-1", 60)
+            .claim_next("code.generate", "runner-group", "instance-2", 60)
             .unwrap()
             .unwrap();
 
@@ -433,5 +660,42 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn claim_next_blocking_wakes_after_publish() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("plugboard.db");
+        let exchange = SqliteExchange::open(&database).unwrap();
+        exchange.init().unwrap();
+
+        thread::scope(|scope| {
+            let database = database.clone();
+            let handle = scope.spawn(move || {
+                let blocking_exchange = SqliteExchange::open(&database).unwrap();
+                blocking_exchange.init().unwrap();
+                blocking_exchange
+                    .claim_next_blocking(
+                        "review.request",
+                        "review-worker",
+                        "instance-1",
+                        5,
+                        Duration::from_millis(10),
+                    )
+                    .unwrap()
+            });
+
+            thread::sleep(Duration::from_millis(100));
+            exchange
+                .publish(NewMessage::new("review.request", "hello"))
+                .unwrap();
+
+            let (message, claim) = handle.join().unwrap();
+            assert_eq!(message.topic, "review.request");
+            assert_eq!(message.body, "hello");
+            assert_eq!(claim.status, ClaimStatus::Active);
+            assert_eq!(claim.worker_group, "review-worker");
+            assert_eq!(claim.worker_instance_id, "instance-1");
+        });
     }
 }

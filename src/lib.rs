@@ -2,6 +2,7 @@ pub mod cli;
 pub mod domain;
 pub mod error;
 pub mod exchange;
+pub mod notifier;
 pub mod plugin;
 pub mod runner;
 pub mod util;

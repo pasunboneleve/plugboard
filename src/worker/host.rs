@@ -1,4 +1,3 @@
-use std::thread;
 use std::time::Duration;
 
 use serde_json::json;
@@ -7,6 +6,9 @@ use crate::domain::{Message, NewMessage};
 use crate::error::Result;
 use crate::exchange::Exchange;
 use crate::plugin::{Plugin, PluginContext, PluginInput, PluginResult};
+use crate::util::id::new_id;
+
+pub const DEFAULT_IDLE_SLEEP: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutcomeTopics {
@@ -18,8 +20,13 @@ pub struct OutcomeTopics {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkerConfig {
     pub topic: String,
-    pub worker_name: String,
+    // worker_group is stable across equivalent workers so claims can be inspected by pool.
+    pub worker_group: String,
+    // worker_instance_id identifies one concrete worker process that owns a claim lease.
+    pub worker_instance_id: String,
     pub timeout_seconds: u64,
+    // lease_seconds bounds how long an active claim stays live without renewal.
+    pub lease_seconds: u64,
     pub idle_sleep: Duration,
     pub outcome_topics: OutcomeTopics,
 }
@@ -32,8 +39,10 @@ impl WorkerConfig {
         timeout_seconds: u64,
     ) -> Self {
         let topic = topic.into();
+        let timeout_seconds = timeout_seconds;
         Self {
-            worker_name: format!("{topic}-worker"),
+            worker_group: format!("{topic}-worker"),
+            worker_instance_id: new_id(),
             outcome_topics: OutcomeTopics {
                 success: success_topic.into(),
                 failure: failure_topic.into(),
@@ -41,8 +50,17 @@ impl WorkerConfig {
             },
             topic,
             timeout_seconds,
-            idle_sleep: Duration::from_millis(250),
+            lease_seconds: default_lease_seconds(Some(timeout_seconds)),
+            // This bounded re-check keeps workers correct when advisory wakeups are missed.
+            idle_sleep: DEFAULT_IDLE_SLEEP,
         }
+    }
+}
+
+fn default_lease_seconds(timeout_seconds: Option<u64>) -> u64 {
+    match timeout_seconds {
+        Some(timeout_seconds) => timeout_seconds.saturating_add(30),
+        None => 300,
     }
 }
 
@@ -72,25 +90,49 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
 
     pub fn run_forever(&self) -> Result<()> {
         loop {
-            match self.run_once()? {
-                RunOnceOutcome::Idle => thread::sleep(self.config.idle_sleep),
-                RunOnceOutcome::Handled { .. } => {}
-            }
+            self.run_once_blocking()?;
+            self.drain_ready_work()?;
         }
     }
 
     pub fn run_once(&self) -> Result<RunOnceOutcome> {
         let Some((message, claim)) = self.exchange.claim_next(
             &self.config.topic,
-            &self.config.worker_name,
-            self.config.timeout_seconds as i64,
+            &self.config.worker_group,
+            &self.config.worker_instance_id,
+            self.config.lease_seconds as i64,
         )?
         else {
             return Ok(RunOnceOutcome::Idle);
         };
 
+        self.handle_claimed_message(message, claim)
+    }
+
+    pub fn run_once_blocking(&self) -> Result<RunOnceOutcome> {
+        let (message, claim) = self.exchange.claim_next_blocking(
+            &self.config.topic,
+            &self.config.worker_group,
+            &self.config.worker_instance_id,
+            self.config.lease_seconds as i64,
+            self.config.idle_sleep,
+        )?;
+
+        self.handle_claimed_message(message, claim)
+    }
+
+    fn drain_ready_work(&self) -> Result<()> {
+        while matches!(self.run_once()?, RunOnceOutcome::Handled { .. }) {}
+        Ok(())
+    }
+
+    fn handle_claimed_message(
+        &self,
+        message: Message,
+        claim: crate::domain::Claim,
+    ) -> Result<RunOnceOutcome> {
         let context = PluginContext {
-            worker_name: self.config.worker_name.clone(),
+            worker_name: self.config.worker_group.clone(),
             timeout_seconds: self.config.timeout_seconds,
         };
         let result = self.plugin.run(PluginInput {
@@ -140,7 +182,7 @@ pub fn build_follow_up_message(
         body: String::new(),
         parent_id: Some(message.id.clone()),
         conversation_id: Some(message.conversation_id.clone()),
-        producer: Some(config.worker_name.clone()),
+        producer: Some(config.worker_group.clone()),
         metadata_json: None,
     };
 
@@ -234,8 +276,10 @@ mod tests {
     fn base_config() -> WorkerConfig {
         WorkerConfig {
             topic: "code.generate".into(),
-            worker_name: "generator".into(),
+            worker_group: "generator".into(),
+            worker_instance_id: "instance-1".into(),
             timeout_seconds: 5,
+            lease_seconds: 35,
             idle_sleep: std::time::Duration::from_millis(10),
             outcome_topics: OutcomeTopics {
                 success: "code.generated".into(),
@@ -302,5 +346,7 @@ mod tests {
             WorkerConfig::new("code.generate", "code.generated", "code.generate.failed", 5);
 
         assert_eq!(config.outcome_topics.timeout, "code.generate.timed_out");
+        assert_eq!(config.lease_seconds, 35);
+        assert_eq!(config.worker_group, "code.generate-worker");
     }
 }

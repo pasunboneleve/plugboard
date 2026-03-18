@@ -21,6 +21,16 @@ The exchange does not need to change for any of them:
 publish -> topic -> worker host -> plugin/backend -> follow-up topic
 ```
 
+For the common passive request/reply case, Plugboard can also sit at the
+edge as:
+
+```text
+request -> topic -> worker host -> plugin/backend -> follow-up topic -> request waiter
+```
+
+That helper still uses the same message log, conversation correlation,
+and advisory wakeup rules.
+
 ## 1. Simple stateless transforms
 
 This is the baseline worker contract:
@@ -107,6 +117,10 @@ workflow and the backend already fits stdin/stdout.
 Use a local model plugin when you want Plugboard to feel fast and
 useful on a developer machine.
 
+The current recommended local path in this repository is an Ollama
+adapter that talks to a local `ollama serve` instance and a small model
+such as `gemma3:1b`.
+
 Use a session-backed plugin when warm state matters but you still want
 Plugboard to stay minimal.
 
@@ -116,9 +130,10 @@ service rather than a local CLI.
 ## Current direction
 
 Plugboard already demonstrates the stateless command path and a real
-Gemini adapter. The next product direction is to support:
+Gemini adapter. It now also includes a local Ollama-backed plugin for
+fast local demos. The next product direction is to strengthen:
 
-* a strong local-model path for low-latency demos
+* the local-model path for low-latency demos
 * a clean API-plugin path for hosted backends
 
 Those additions belong in plugins, docs, and worker integrations, not
