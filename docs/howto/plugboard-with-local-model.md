@@ -70,12 +70,13 @@ the same.
 
 ## Model selection
 
-By default, `ollama-plugin` uses `gemma3:1b`.
+By default, `ollama-plugin` uses the official Ollama model tag
+`gemma3:1b`.
 
 To use a different locally available model:
 
 ```bash
-OLLAMA_PLUGIN_MODEL=qwen2.5:1.5b \
+OLLAMA_PLUGIN_MODEL=qwen2:1.5b \
 timeout 30 plugboard run \
   --topic local.review.request \
   --success-topic local.review.done \

@@ -18,9 +18,14 @@ Ollama is a pragmatic fit for Plugboard's local path:
 * supports small models that start quickly enough for demos
 * exposes a simple local API that a plugin can call directly
 
-The current adapter defaults to `gemma3:1b`, which is small enough to be
-practical for local demos while still being more useful than a toy shell
-transform.
+The current adapter defaults to the official Ollama model tag
+`gemma3:1b`, which is small enough to be practical for local demos
+while still being more useful than a toy shell transform.
+
+Official model references:
+
+* `gemma3:1b` — https://ollama.com/library/gemma3:1b
+* `qwen2:1.5b` — https://ollama.com/library/qwen2:1.5b
 
 ## Prerequisites
 
@@ -51,6 +56,8 @@ In another terminal, pull the default demo model:
 ```bash
 ollama pull gemma3:1b
 ```
+
+`gemma3:1b` currently requires Ollama 0.6 or later.
 
 If you want a different local model later, set `OLLAMA_PLUGIN_MODEL`
 when you run the plugin.
