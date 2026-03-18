@@ -916,8 +916,3 @@ That is enough to prove the project’s core idea:
 **independent programs can coordinate asynchronously through a local
 textual exchange without sharing a framework or rigid typed
 protocol.**
-
-```
-
-After this, the next prompt to Codex should be implementation-shaped, not exploratory: “align code with DESIGN.md and ARCHITECTURE.md; implement notifier abstraction + `run --once` before touching anything else.”
-```
