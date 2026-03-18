@@ -388,6 +388,9 @@ Plugboard separates:
 * worker lifecycle
 * wakeup mechanics
 
+For a clarification of how blocking waits relate to asynchronous
+exchange semantics, see “Asynchronous vs blocking” in [DESIGN.md](./DESIGN.md).
+
 ### Exchange state
 
 The exchange stores messages and claims in SQLite.
