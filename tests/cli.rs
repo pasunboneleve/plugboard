@@ -57,7 +57,9 @@ fn run_help_describes_worker_host() {
     assert!(stdout.contains("writes the claimed message body"));
     assert!(stdout.contains("default is 60 seconds"));
     assert!(stdout.contains("Raise it for slower backends such as Gemini"));
-    assert!(stdout.contains("bounded re-checks every 250 ms by default"));
+    assert!(stdout.contains("bounded notifier waits and, when no notifier is available"));
+    assert!(stdout.contains("RUST_LOG=debug"));
+    assert!(stdout.contains("--wait-timeout-ms"));
     assert!(stdout.contains("--idle-sleep-ms"));
     assert!(stdout.contains("Interactive tools usually need a wrapper"));
 }
@@ -90,7 +92,10 @@ fn publish_and_read_help_are_concrete() {
     assert!(publish_stdout.contains("Topics are the addressing mechanism"));
     assert!(publish_stdout.contains("Plain-text message body"));
 
-    let read_help = Command::new(binary).args(["read", "--help"]).output().unwrap();
+    let read_help = Command::new(binary)
+        .args(["read", "--help"])
+        .output()
+        .unwrap();
     assert!(read_help.status.success());
     let read_stdout = String::from_utf8_lossy(&read_help.stdout);
     assert!(read_stdout.contains("already published to the exchange"));
@@ -104,8 +109,21 @@ fn publish_and_read_help_are_concrete() {
     let request_stdout = String::from_utf8_lossy(&request_help.stdout);
     assert!(request_stdout.contains("correlated follow-up message"));
     assert!(request_stdout.contains("same conversation"));
-    assert!(request_stdout.contains("bounded re-checks every 250 ms by default"));
+    assert!(request_stdout.contains("bounded notifier waits and, when no notifier is available"));
+    assert!(request_stdout.contains("RUST_LOG=debug"));
+    assert!(request_stdout.contains("--wait-timeout-ms"));
     assert!(request_stdout.contains("--recheck-ms"));
+
+    let inspect_help = Command::new(binary)
+        .args(["inspect", "--help"])
+        .output()
+        .unwrap();
+    assert!(inspect_help.status.success());
+    let inspect_stdout = String::from_utf8_lossy(&inspect_help.stdout);
+    assert!(inspect_stdout.contains("debugging and forensics"));
+    assert!(inspect_stdout.contains("prefer `plugboard read --topic ...`"));
+    assert!(inspect_stdout.contains("large amount of historical data"));
+    assert!(inspect_stdout.contains("temporary database"));
 }
 
 #[test]
@@ -335,6 +353,17 @@ fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
     }
 }
 
+fn wait_for_file(path: &std::path::Path, timeout: Duration) {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if path.exists() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!("timed out waiting for {}", path.display());
+}
+
 #[test]
 fn request_publishes_and_waits_for_success_reply() {
     let temp = tempfile::tempdir().unwrap();
@@ -428,7 +457,10 @@ fn request_exits_nonzero_on_failure_reply() {
 
     let output = request.wait_with_output().unwrap();
     assert!(!output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Needs tests");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Needs tests"
+    );
 }
 
 #[test]
@@ -614,11 +646,18 @@ fn request_wakes_run_once_worker_and_returns_reply_on_fresh_topic() {
         .spawn()
         .unwrap();
 
+    let start = Instant::now();
     let request_output = wait_with_timeout(request, Duration::from_secs(10));
+    let elapsed = start.elapsed();
     assert!(request_output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&request_output.stdout).trim(),
         "WAKE ME UP"
+    );
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "expected notifier-success request/reply path to finish well below fallback ceiling, got {:?}",
+        elapsed
     );
 
     let worker_output = wait_with_timeout(worker, Duration::from_secs(10));
@@ -673,11 +712,18 @@ fn request_wakes_persistent_worker_and_returns_reply_on_fresh_topic() {
         .spawn()
         .unwrap();
 
+    let start = Instant::now();
     let request_output = wait_with_timeout(request, Duration::from_secs(10));
+    let elapsed = start.elapsed();
     assert!(request_output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&request_output.stdout).trim(),
         "FRESH TOPIC"
+    );
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "expected persistent notifier-success request/reply path to finish well below fallback ceiling, got {:?}",
+        elapsed
     );
 
     let _ = worker.kill();
@@ -687,6 +733,124 @@ fn request_wakes_persistent_worker_and_returns_reply_on_fresh_topic() {
         "persistent worker stderr:\n{}",
         String::from_utf8_lossy(&worker_output.stderr),
     );
+}
+
+#[test]
+fn persistent_worker_handles_rapid_publish_sequence_without_waiting_for_fallback() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+    let request_topic = unique_topic("review.request");
+    let success_topic = format!("{request_topic}.done");
+    let failure_topic = format!("{request_topic}.failed");
+
+    let mut worker = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--topic",
+            &request_topic,
+            "--success-topic",
+            &success_topic,
+            "--failure-topic",
+            &failure_topic,
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    wait_for_file(&database, Duration::from_secs(2));
+    let warmup = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            &request_topic,
+            "warmup",
+        ])
+        .output()
+        .unwrap();
+    assert!(warmup.status.success());
+
+    let warmup_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let read = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "read",
+                "--topic",
+                &success_topic,
+            ])
+            .output()
+            .unwrap();
+        assert!(read.status.success());
+        let stdout = String::from_utf8_lossy(&read.stdout);
+        if stdout.matches(&success_topic).count() >= 1 {
+            break;
+        }
+        if Instant::now() >= warmup_deadline {
+            panic!("worker did not process warmup message in time");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let start = Instant::now();
+    for body in ["first", "second", "third"] {
+        let publish = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "publish",
+                &request_topic,
+                body,
+            ])
+            .output()
+            .unwrap();
+        assert!(publish.status.success());
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let read = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "read",
+                "--topic",
+                &success_topic,
+            ])
+            .output()
+            .unwrap();
+        assert!(read.status.success());
+        let stdout = String::from_utf8_lossy(&read.stdout);
+        if stdout.matches(&success_topic).count() == 4 {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "worker did not drain rapid publish sequence in time\nstdout:\n{}",
+                stdout
+            );
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(300),
+        "expected rapid notifier path to drain without leaning on repeated 250 ms fallback waits, got {:?}",
+        elapsed
+    );
+
+    worker.kill().unwrap();
+    let _ = worker.wait_with_output().unwrap();
 }
 
 #[test]

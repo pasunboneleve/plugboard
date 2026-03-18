@@ -2,17 +2,19 @@ use std::io::{self, Read};
 use std::time::Duration;
 
 use clap::Args;
+use log::debug;
 
 use crate::domain::{Message, NewMessage};
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
 
 pub const DEFAULT_REPLY_RECHECK_INTERVAL: Duration = Duration::from_millis(250);
+pub const DEFAULT_REPLY_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Args)]
 #[command(
     about = "Publish a request and wait for one correlated reply",
-    long_about = "Publish a plain-text request to a topic, then wait for the first correlated follow-up message in the same conversation on either the configured success or failure topic.\n\nThis is a thin request/reply helper at the edge. It uses the normal Plugboard message log, conversation_id propagation, and advisory wakeups. It does not add a new request entity or subscription model.\n\nNotifier wakeups are advisory only. Correctness currently relies on bounded re-checks every 250 ms by default, so worst-case reply detection latency under notifier failure is about 250 ms plus normal process and SQLite overhead."
+    long_about = "Publish a plain-text request to a topic, then wait for the first correlated follow-up message in the same conversation on either the configured success or failure topic.\n\nThis is a thin request/reply helper at the edge. It uses the normal Plugboard message log, conversation_id propagation, and advisory wakeups. It does not add a new request entity or subscription model.\n\nNotifier wakeups are advisory only. Correctness currently relies on bounded notifier waits and, when no notifier is available, bounded periodic SQLite re-checks. Both default to 250 ms, so worst-case reply detection latency under notifier failure is about 250 ms plus normal process and SQLite overhead.\n\nEnable targeted wakeup-path logs with RUST_LOG=debug."
 )]
 pub struct RequestArgs {
     #[arg(help = "Topic name to publish the request to")]
@@ -23,12 +25,21 @@ pub struct RequestArgs {
     pub failure_topic: String,
     #[arg(long, help = "Plain-text request body; if omitted, read from stdin")]
     pub body: Option<String>,
-    #[arg(long, help = "Optional producer label to record with the request message")]
+    #[arg(
+        long,
+        help = "Optional producer label to record with the request message"
+    )]
     pub producer: Option<String>,
     #[arg(
         long,
+        default_value_t = DEFAULT_REPLY_WAIT_TIMEOUT.as_millis() as u64,
+        help = "Maximum advisory notifier wait in milliseconds before forcing a reply re-check; default 250 ms"
+    )]
+    pub wait_timeout_ms: u64,
+    #[arg(
+        long,
         default_value_t = DEFAULT_REPLY_RECHECK_INTERVAL.as_millis() as u64,
-        help = "Bounded re-check interval in milliseconds for advisory wakeups while waiting for a reply; default 250 ms"
+        help = "Periodic fallback re-check interval in milliseconds when no notifier is available while waiting for a reply; default 250 ms"
     )]
     pub recheck_ms: u64,
 }
@@ -53,6 +64,7 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
         &request,
         &args.success_topic,
         &args.failure_topic,
+        Duration::from_millis(args.wait_timeout_ms),
         Duration::from_millis(args.recheck_ms),
     )?;
     println!("{}", reply.body);
@@ -77,7 +89,8 @@ fn find_reply(
 ) -> Result<Option<Message>> {
     let conversation = exchange.read_by_conversation(&request.conversation_id)?;
     Ok(conversation.into_iter().find(|message| {
-        message.id != request.id && (message.topic == success_topic || message.topic == failure_topic)
+        message.id != request.id
+            && (message.topic == success_topic || message.topic == failure_topic)
     }))
 }
 
@@ -86,20 +99,61 @@ fn await_reply(
     request: &Message,
     success_topic: &str,
     failure_topic: &str,
+    wait_timeout: Duration,
     wait_interval: Duration,
 ) -> Result<Message> {
     loop {
+        debug!(
+            "request {} arming wait ticket for conversation={} success_topic={} failure_topic={} wait_timeout_ms={} recheck_ms={}",
+            request.id,
+            request.conversation_id,
+            success_topic,
+            failure_topic,
+            wait_timeout.as_millis(),
+            wait_interval.as_millis()
+        );
         let ticket = exchange.prepare_wait_for_change()?;
+        debug!(
+            "request {} checking SQLite for correlated reply in conversation={}",
+            request.id, request.conversation_id
+        );
         if let Some(reply) = find_reply(exchange, request, success_topic, failure_topic)? {
+            debug!(
+                "request {} matched reply {} on topic={}",
+                request.id, reply.id, reply.topic
+            );
             return Ok(reply);
         }
 
         match ticket {
             Some(ticket) => {
-                ticket.wait(Some(wait_interval))?;
+                debug!(
+                    "request {} waiting on notifier for up to {} ms",
+                    request.id,
+                    wait_timeout.as_millis()
+                );
+                let woke = ticket.wait(Some(wait_timeout))?;
+                if woke {
+                    debug!(
+                        "request {} received notifier event; re-checking",
+                        request.id
+                    );
+                } else {
+                    debug!(
+                        "request {} notifier wait timed out after {} ms; forcing immediate reply re-check",
+                        request.id,
+                        wait_timeout.as_millis(),
+                    );
+                }
             }
             None => {
+                debug!(
+                    "request {} has no notifier; entering fallback sleep {} ms",
+                    request.id,
+                    wait_interval.as_millis()
+                );
                 std::thread::sleep(wait_interval);
+                debug!("request {} fallback wake complete; re-checking", request.id);
             }
         }
     }
@@ -196,6 +250,7 @@ mod tests {
             _worker_group: &str,
             _worker_instance_id: &str,
             _lease_seconds: i64,
+            _wait_timeout: Duration,
             _idle_sleep: Duration,
         ) -> Result<(Message, Claim)> {
             unreachable!("claim_next_blocking is not used in this test")
@@ -260,6 +315,7 @@ mod tests {
             &request,
             "review.done",
             "review.failed",
+            Duration::from_millis(10),
             Duration::from_millis(10),
         )
         .unwrap();

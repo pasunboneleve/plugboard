@@ -38,6 +38,7 @@ pub enum Commands {
     Read(read::ReadArgs),
     #[command(about = "Publish a request and wait for one correlated reply")]
     Request(request::RequestArgs),
+    #[command(about = "Inspect raw message and claim history for debugging and forensics")]
     Inspect(inspect::InspectArgs),
     #[command(about = "Host a long-running worker that listens on a topic")]
     Run(run::RunArgs),

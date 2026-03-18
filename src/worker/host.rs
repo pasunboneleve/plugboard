@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use log::debug;
 use serde_json::json;
 
 use crate::domain::{Message, NewMessage};
@@ -9,6 +10,7 @@ use crate::plugin::{Plugin, PluginContext, PluginInput, PluginResult};
 use crate::util::id::new_id;
 
 pub const DEFAULT_IDLE_SLEEP: Duration = Duration::from_millis(250);
+pub const DEFAULT_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutcomeTopics {
@@ -27,6 +29,8 @@ pub struct WorkerConfig {
     pub timeout_seconds: u64,
     // lease_seconds bounds how long an active claim stays live without renewal.
     pub lease_seconds: u64,
+    // wait_timeout bounds one notifier wait before a forced SQLite re-check.
+    pub wait_timeout: Duration,
     pub idle_sleep: Duration,
     pub outcome_topics: OutcomeTopics,
 }
@@ -51,6 +55,7 @@ impl WorkerConfig {
             topic,
             timeout_seconds,
             lease_seconds: default_lease_seconds(Some(timeout_seconds)),
+            wait_timeout: DEFAULT_WAIT_TIMEOUT,
             // This bounded re-check keeps workers correct when advisory wakeups are missed.
             idle_sleep: DEFAULT_IDLE_SLEEP,
         }
@@ -89,6 +94,14 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
     }
 
     pub fn run_forever(&self) -> Result<()> {
+        debug!(
+            "worker {} [{}] entering persistent loop on topic={} wait_timeout_ms={} idle_sleep_ms={}",
+            self.config.worker_group,
+            self.config.worker_instance_id,
+            self.config.topic,
+            self.config.wait_timeout.as_millis(),
+            self.config.idle_sleep.as_millis()
+        );
         loop {
             self.run_once_blocking()?;
             self.drain_ready_work()?;
@@ -96,6 +109,10 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
     }
 
     pub fn run_once(&self) -> Result<RunOnceOutcome> {
+        debug!(
+            "worker {} [{}] checking SQLite for topic={} without blocking",
+            self.config.worker_group, self.config.worker_instance_id, self.config.topic
+        );
         let Some((message, claim)) = self.exchange.claim_next(
             &self.config.topic,
             &self.config.worker_group,
@@ -103,26 +120,55 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
             self.config.lease_seconds as i64,
         )?
         else {
+            debug!(
+                "worker {} [{}] found no claimable message on topic={}",
+                self.config.worker_group, self.config.worker_instance_id, self.config.topic
+            );
             return Ok(RunOnceOutcome::Idle);
         };
 
+        debug!(
+            "worker {} [{}] claimed message {} via claim {}",
+            self.config.worker_group, self.config.worker_instance_id, message.id, claim.id
+        );
         self.handle_claimed_message(message, claim)
     }
 
     pub fn run_once_blocking(&self) -> Result<RunOnceOutcome> {
+        debug!(
+            "worker {} [{}] entering blocking claim on topic={} wait_timeout_ms={} idle_sleep_ms={}",
+            self.config.worker_group,
+            self.config.worker_instance_id,
+            self.config.topic,
+            self.config.wait_timeout.as_millis(),
+            self.config.idle_sleep.as_millis()
+        );
         let (message, claim) = self.exchange.claim_next_blocking(
             &self.config.topic,
             &self.config.worker_group,
             &self.config.worker_instance_id,
             self.config.lease_seconds as i64,
+            self.config.wait_timeout,
             self.config.idle_sleep,
         )?;
 
+        debug!(
+            "worker {} [{}] claimed message {} via blocking path with claim {}",
+            self.config.worker_group, self.config.worker_instance_id, message.id, claim.id
+        );
         self.handle_claimed_message(message, claim)
     }
 
     fn drain_ready_work(&self) -> Result<()> {
+        debug!(
+            "worker {} [{}] draining ready work on topic={}",
+            self.config.worker_group, self.config.worker_instance_id, self.config.topic
+        );
         while matches!(self.run_once()?, RunOnceOutcome::Handled { .. }) {}
+        debug!(
+            "worker {} [{}] drain complete; blocking again on topic={}",
+            self.config.worker_group, self.config.worker_instance_id, self.config.topic
+        );
         Ok(())
     }
 
@@ -131,6 +177,13 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
         message: Message,
         claim: crate::domain::Claim,
     ) -> Result<RunOnceOutcome> {
+        debug!(
+            "worker {} [{}] executing plugin {} for message {}",
+            self.config.worker_group,
+            self.config.worker_instance_id,
+            self.plugin.name(),
+            message.id
+        );
         let context = PluginContext {
             worker_name: self.config.worker_group.clone(),
             timeout_seconds: self.config.timeout_seconds,
@@ -140,6 +193,10 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
             context: &context,
         })?;
         let follow_up = self.publish_result(&message, &claim.id, result)?;
+        debug!(
+            "worker {} [{}] published follow-up {} for message {}",
+            self.config.worker_group, self.config.worker_instance_id, follow_up.id, message.id
+        );
 
         Ok(RunOnceOutcome::Handled {
             message_id: message.id,
@@ -280,6 +337,7 @@ mod tests {
             worker_instance_id: "instance-1".into(),
             timeout_seconds: 5,
             lease_seconds: 35,
+            wait_timeout: std::time::Duration::from_millis(10),
             idle_sleep: std::time::Duration::from_millis(10),
             outcome_topics: OutcomeTopics {
                 success: "code.generated".into(),

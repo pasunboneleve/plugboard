@@ -1,8 +1,11 @@
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::Instant;
 use std::time::Duration;
+use std::time::Instant;
 
+use log::debug;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::error::Result;
@@ -25,6 +28,22 @@ impl SqliteFileNotifier {
         Self {
             database_path: database_path.into(),
         }
+    }
+
+    pub fn emit(&self) -> Result<()> {
+        let wake_path = wake_marker_path(&self.database_path);
+        if let Some(parent) = wake_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(wake_path)?;
+        file.write_all(b"wake\n")?;
+        file.flush()?;
+        Ok(())
     }
 }
 
@@ -60,19 +79,24 @@ impl WaitTicket for FileWaitTicket {
     fn wait(self: Box<Self>, timeout: Option<Duration>) -> Result<bool> {
         let ticket = *self;
         let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        debug!(
+            "wait ticket armed for {} watched paths timeout_ms={}",
+            ticket.watched_paths.len(),
+            timeout.map(|value| value.as_millis()).unwrap_or(0)
+        );
         loop {
             let event = match timeout {
                 Some(_) => {
-                    let Some(remaining) = deadline.and_then(|deadline| {
-                        remaining_until(deadline, Instant::now())
-                    }) else {
+                    let Some(remaining) =
+                        deadline.and_then(|deadline| remaining_until(deadline, Instant::now()))
+                    else {
                         return Ok(false);
                     };
                     match ticket.receiver.recv_timeout(remaining) {
-                    Ok(event) => event?,
-                    Err(RecvTimeoutError::Timeout) => return Ok(false),
-                    Err(RecvTimeoutError::Disconnected) => return Ok(false),
-                }
+                        Ok(event) => event?,
+                        Err(RecvTimeoutError::Timeout) => return Ok(false),
+                        Err(RecvTimeoutError::Disconnected) => return Ok(false),
+                    }
                 }
                 None => match ticket.receiver.recv() {
                     Ok(event) => event?,
@@ -80,7 +104,15 @@ impl WaitTicket for FileWaitTicket {
                 },
             };
 
-            if event.paths.iter().any(|path| matches_related_path(path, &ticket.watched_paths)) {
+            if event
+                .paths
+                .iter()
+                .any(|path| matches_related_path(path, &ticket.watched_paths))
+            {
+                debug!(
+                    "notifier event matched watched SQLite path(s): {:?}",
+                    event.paths
+                );
                 return Ok(true);
             }
         }
@@ -93,9 +125,18 @@ fn related_sqlite_paths(database_path: &Path) -> Vec<PathBuf> {
     if let Some(file_name) = database_path.file_name().and_then(|name| name.to_str()) {
         paths.push(database_path.with_file_name(format!("{file_name}-wal")));
         paths.push(database_path.with_file_name(format!("{file_name}-shm")));
+        paths.push(wake_marker_path(database_path));
     }
 
     paths
+}
+
+fn wake_marker_path(database_path: &Path) -> PathBuf {
+    let file_name = database_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("plugboard.db");
+    database_path.with_file_name(format!("{file_name}.wake"))
 }
 
 fn matches_related_path(candidate: &Path, watched_paths: &[PathBuf]) -> bool {
@@ -108,7 +149,11 @@ fn remaining_until(deadline: Instant, now: Instant) -> Option<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use super::{matches_related_path, related_sqlite_paths, remaining_until};
+    use super::{
+        SqliteFileNotifier, matches_related_path, related_sqlite_paths, remaining_until,
+        wake_marker_path,
+    };
+    use std::fs;
     use std::path::Path;
     use std::time::{Duration, Instant};
 
@@ -118,17 +163,50 @@ mod tests {
         assert!(paths.contains(&"/tmp/plugboard.db".into()));
         assert!(paths.contains(&"/tmp/plugboard.db-wal".into()));
         assert!(paths.contains(&"/tmp/plugboard.db-shm".into()));
+        assert!(paths.contains(&"/tmp/plugboard.db.wake".into()));
     }
 
     #[test]
     fn matches_database_and_wal_paths() {
         let watched = related_sqlite_paths(Path::new("/tmp/plugboard.db"));
-        assert!(matches_related_path(Path::new("/tmp/plugboard.db"), &watched));
+        assert!(matches_related_path(
+            Path::new("/tmp/plugboard.db"),
+            &watched
+        ));
         assert!(matches_related_path(
             Path::new("/tmp/plugboard.db-wal"),
             &watched
         ));
+        assert!(matches_related_path(
+            Path::new("/tmp/plugboard.db.wake"),
+            &watched
+        ));
         assert!(!matches_related_path(Path::new("/tmp/other.db"), &watched));
+    }
+
+    #[test]
+    fn derives_wake_marker_path() {
+        assert_eq!(
+            wake_marker_path(Path::new("/tmp/plugboard.db")),
+            Path::new("/tmp/plugboard.db.wake")
+        );
+    }
+
+    #[test]
+    fn emit_overwrites_wake_marker_instead_of_appending() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("plugboard.db");
+        let wake_path = wake_marker_path(&database);
+        let notifier = SqliteFileNotifier::new(&database);
+
+        notifier.emit().unwrap();
+        let first = fs::read(&wake_path).unwrap();
+        notifier.emit().unwrap();
+        let second = fs::read(&wake_path).unwrap();
+
+        assert_eq!(first, b"wake\n");
+        assert_eq!(second, b"wake\n");
+        assert_eq!(second.len(), b"wake\n".len());
     }
 
     #[test]
@@ -137,6 +215,9 @@ mod tests {
         let deadline = start + Duration::from_millis(50);
         assert!(remaining_until(deadline, start).unwrap() <= Duration::from_millis(50));
         assert_eq!(remaining_until(deadline, deadline), Some(Duration::ZERO));
-        assert_eq!(remaining_until(deadline, deadline + Duration::from_millis(1)), None);
+        assert_eq!(
+            remaining_until(deadline, deadline + Duration::from_millis(1)),
+            None
+        );
     }
 }

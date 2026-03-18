@@ -29,6 +29,14 @@ The repository includes a deterministic demo plugin, a real Gemini
 adapter, and a local-model adapter built around Ollama for low-latency
 local request/reply workflows.
 
+Operationally, blocking worker and request/reply paths use advisory
+local wakeups plus bounded SQLite re-checks. The default notifier wait
+timeout is 250 ms, and the no-notifier periodic fallback interval is
+also 250 ms. Targeted debug visibility is available with
+`RUST_LOG=debug`. The main tuning knobs are
+`plugboard run --wait-timeout-ms --idle-sleep-ms` and
+`plugboard request --wait-timeout-ms --recheck-ms`.
+
 Plugboard can be useful with several backend styles: simple stateless
 transforms, low-latency local model plugins, plugins that talk to
 already-running agents or warm backends, and direct API plugins for
@@ -44,6 +52,18 @@ plugboard request --topic ... --success-topic ... --failure-topic ... --body ...
 
 It publishes a request, waits for the first correlated follow-up in the
 same conversation, prints the reply body, and exits.
+
+Read vs Inspect
+---------------
+
+Use `plugboard read` for normal usage. It is the routine way to read
+messages from a topic or conversation.
+
+Use `plugboard inspect` when you need forensic detail about raw message
+history or claim state. It can print a lot of historical output on a
+non-empty database, so it is best treated as a debugging command. For
+experiments, prefer using a temporary database so the output stays
+focused.
 
 Three-layer model
 -----------------

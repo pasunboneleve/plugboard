@@ -372,9 +372,13 @@ The system must not rely on filesystem notification delivery for
 correctness. A bounded re-check interval around blocking waits is
 acceptable because the database remains authoritative.
 
-In the current product, that bounded re-check defaults to 250 ms. So
-when notifier delivery fails, correctness falls back to effectively
-polling the database every 250 ms plus normal processing overhead.
+In the current product, the notifier wait timeout defaults to 250 ms,
+and the no-notifier fallback re-check interval also defaults to 250 ms.
+So when notifier delivery fails, correctness falls back to re-checking
+the database after that bounded wait; if no notifier is available at
+all, the system effectively polls the database every 250 ms plus normal
+processing overhead. These operational knobs are exposed in the CLI,
+and the blocking path can be observed with `RUST_LOG=debug`.
 
 ### Design principle
 

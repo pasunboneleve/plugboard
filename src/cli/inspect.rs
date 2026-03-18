@@ -8,6 +8,10 @@ use crate::error::Result;
 use crate::exchange::Exchange;
 
 #[derive(Debug, Args)]
+#[command(
+    about = "Inspect raw message and claim history for debugging and forensics",
+    long_about = "Inspect raw Plugboard history for debugging and forensics.\n\nThis command is not the normal way to read results. For routine usage, prefer `plugboard read --topic ...` or `plugboard read --conversation ...`.\n\n`inspect` can print a large amount of historical data from a non-empty database, including old messages that are no longer relevant to the workflow you are debugging. For experiments, prefer using a temporary database with `--database /tmp/...` so the output stays focused.\n\nUse `--message` to inspect one message and its claims, or `--conversation` to inspect one correlated conversation. With no selector, `inspect` prints the full message history in the database."
+)]
 pub struct InspectArgs {
     #[arg(long, conflicts_with = "conversation")]
     pub message: Option<String>,

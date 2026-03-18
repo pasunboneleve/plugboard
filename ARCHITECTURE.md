@@ -419,10 +419,13 @@ Wakeups are advisory signals that tell workers it is worth retrying a
 claim. They do not assign messages and they do not replace the claim
 transaction.
 
-In the current implementation, correctness relies on bounded 250 ms
-re-checks around those advisory waits. Under notifier failure, the
-worst-case detection latency is therefore about 250 ms plus normal
-process and SQLite overhead.
+In the current implementation, correctness relies on bounded notifier
+waits and, when no notifier is available, bounded 250 ms periodic
+SQLite re-checks around those advisory waits. Under notifier failure,
+the worst-case detection latency is therefore about 250 ms plus normal
+process and SQLite overhead. Those intervals are exposed as CLI knobs
+for worker and request/reply paths, and targeted wakeup-path logging is
+available with `RUST_LOG=debug`.
 
 ## Local wakeup mechanism
 
