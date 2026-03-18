@@ -29,5 +29,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_active_message
     ON claims(message_id)
     WHERE status = 'active';
 
+CREATE INDEX IF NOT EXISTS idx_claims_message_id
+    ON claims(message_id);
+
 CREATE INDEX IF NOT EXISTS idx_claims_runner_status
     ON claims(runner_name, status);

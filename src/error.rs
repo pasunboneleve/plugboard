@@ -8,6 +8,8 @@ pub type Result<T> = std::result::Result<T, PlugboardError>;
 pub enum PlugboardError {
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
+    #[error("filesystem notification error: {0}")]
+    Notify(#[from] notify::Error),
     #[error("io error: {0}")]
     Io(#[from] io::Error),
     #[error("time formatting error: {0}")]

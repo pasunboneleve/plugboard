@@ -1,12 +1,15 @@
 use std::cell::RefCell;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::domain::{Claim, ClaimStatus, Message, NewMessage};
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
+use crate::notifier::{Notifier, SqliteFileNotifier};
 use crate::util::id::new_id;
 use crate::util::time::{add_seconds, format_timestamp, now_timestamp, now_utc};
 
@@ -14,6 +17,7 @@ const SCHEMA: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/schema.s
 
 pub struct SqliteExchange {
     connection: RefCell<Connection>,
+    database_path: Option<PathBuf>,
 }
 
 impl SqliteExchange {
@@ -28,6 +32,7 @@ impl SqliteExchange {
 
         Ok(Self {
             connection: RefCell::new(connection),
+            database_path: Some(path.to_path_buf()),
         })
     }
 
@@ -37,7 +42,14 @@ impl SqliteExchange {
 
         Ok(Self {
             connection: RefCell::new(connection),
+            database_path: None,
         })
+    }
+
+    fn notifier(&self) -> Option<SqliteFileNotifier> {
+        self.database_path
+            .as_ref()
+            .map(|path| SqliteFileNotifier::new(path.clone()))
     }
 
     fn load_message(connection: &Connection, message_id: &str) -> Result<Option<Message>> {
@@ -89,6 +101,59 @@ impl SqliteExchange {
             .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
         transaction.commit()?;
         Ok(claim)
+    }
+
+    fn claim_next_inner(
+        &self,
+        topic: &str,
+        runner_name: &str,
+        lease_seconds: i64,
+    ) -> Result<Option<(Message, Claim)>> {
+        let mut connection = self.connection.borrow_mut();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let candidate = transaction
+            .query_row(
+                "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
+                 FROM messages
+                 WHERE topic = ?1
+                 AND NOT EXISTS (
+                     SELECT 1
+                     FROM claims
+                     WHERE claims.message_id = messages.id
+                 )
+                 ORDER BY created_at ASC, id ASC
+                 LIMIT 1",
+                params![topic],
+                map_message,
+            )
+            .optional()?;
+
+        let Some(message) = candidate else {
+            transaction.commit()?;
+            return Ok(None);
+        };
+
+        let claim_id = new_id();
+        let claimed_at_time = now_utc();
+        let claimed_at = format_timestamp(claimed_at_time)?;
+        let lease_until = format_timestamp(add_seconds(claimed_at_time, lease_seconds))?;
+
+        transaction.execute(
+            "INSERT INTO claims (id, message_id, runner_name, claimed_at, lease_until, status, completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'active', NULL)",
+            params![
+                claim_id,
+                message.id,
+                runner_name,
+                claimed_at,
+                lease_until,
+            ],
+        )?;
+
+        let claim = Self::load_claim(&transaction, &claim_id)?
+            .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
+        transaction.commit()?;
+        Ok(Some((message, claim)))
     }
 }
 
@@ -201,51 +266,41 @@ impl Exchange for SqliteExchange {
         runner_name: &str,
         lease_seconds: i64,
     ) -> Result<Option<(Message, Claim)>> {
-        let mut connection = self.connection.borrow_mut();
-        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let candidate = transaction
-            .query_row(
-                "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
-                 FROM messages
-                 WHERE topic = ?1
-                 AND NOT EXISTS (
-                     SELECT 1
-                     FROM claims
-                     WHERE claims.message_id = messages.id
-                 )
-                 ORDER BY created_at ASC, id ASC
-                 LIMIT 1",
-                params![topic],
-                map_message,
-            )
-            .optional()?;
+        self.claim_next_inner(topic, runner_name, lease_seconds)
+    }
 
-        let Some(message) = candidate else {
-            transaction.commit()?;
-            return Ok(None);
+    fn claim_next_blocking(
+        &self,
+        topic: &str,
+        runner_name: &str,
+        lease_seconds: i64,
+    ) -> Result<(Message, Claim)> {
+        loop {
+            if let Some(notifier) = self.notifier() {
+                let ticket = notifier.prepare_wait()?;
+                if let Some(claimed) = self.claim_next_inner(topic, runner_name, lease_seconds)? {
+                    return Ok(claimed);
+                }
+                ticket.wait(None)?;
+                continue;
+            }
+
+            if let Some(claimed) = self.claim_next_inner(topic, runner_name, lease_seconds)? {
+                return Ok(claimed);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn wait_for_change(&self, timeout: Option<Duration>) -> Result<bool> {
+        let Some(notifier) = self.notifier() else {
+            if let Some(timeout) = timeout {
+                std::thread::sleep(timeout);
+            }
+            return Ok(false);
         };
 
-        let claim_id = new_id();
-        let claimed_at_time = now_utc();
-        let claimed_at = format_timestamp(claimed_at_time)?;
-        let lease_until = format_timestamp(add_seconds(claimed_at_time, lease_seconds))?;
-
-        transaction.execute(
-            "INSERT INTO claims (id, message_id, runner_name, claimed_at, lease_until, status, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'active', NULL)",
-            params![
-                claim_id,
-                message.id,
-                runner_name,
-                claimed_at,
-                lease_until,
-            ],
-        )?;
-
-        let claim = Self::load_claim(&transaction, &claim_id)?
-            .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
-        transaction.commit()?;
-        Ok(Some((message, claim)))
+        notifier.prepare_wait()?.wait(timeout)
     }
 
     fn complete_claim(&self, claim_id: &str) -> Result<Claim> {
@@ -300,6 +355,8 @@ mod tests {
     use crate::domain::ClaimStatus;
     use crate::domain::NewMessage;
     use crate::exchange::Exchange;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn initializes_schema() {
@@ -433,5 +490,34 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn claim_next_blocking_wakes_after_publish() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("plugboard.db");
+        let exchange = SqliteExchange::open(&database).unwrap();
+        exchange.init().unwrap();
+
+        thread::scope(|scope| {
+            let database = database.clone();
+            let handle = scope.spawn(move || {
+                let blocking_exchange = SqliteExchange::open(&database).unwrap();
+                blocking_exchange.init().unwrap();
+                blocking_exchange
+                    .claim_next_blocking("review.request", "worker-1", 5)
+                    .unwrap()
+            });
+
+            thread::sleep(Duration::from_millis(100));
+            exchange
+                .publish(NewMessage::new("review.request", "hello"))
+                .unwrap();
+
+            let (message, claim) = handle.join().unwrap();
+            assert_eq!(message.topic, "review.request");
+            assert_eq!(message.body, "hello");
+            assert_eq!(claim.status, ClaimStatus::Active);
+        });
     }
 }

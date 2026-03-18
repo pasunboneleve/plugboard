@@ -1,4 +1,6 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 
 #[test]
 fn publish_and_read_commands_work() {
@@ -48,6 +50,7 @@ fn run_help_describes_worker_host() {
     let stdout = String::from_utf8_lossy(&help.stdout);
     assert!(stdout.contains("worker host"));
     assert!(stdout.contains("claims one message at a time"));
+    assert!(stdout.contains("With --once"));
     assert!(stdout.contains("writes the claimed message body"));
     assert!(stdout.contains("default is 60 seconds"));
     assert!(stdout.contains("Raise it for slower backends such as Gemini"));
@@ -86,4 +89,122 @@ fn publish_and_read_help_are_concrete() {
     let read_stdout = String::from_utf8_lossy(&read_help.stdout);
     assert!(read_stdout.contains("already published to the exchange"));
     assert!(read_stdout.contains("tab-separated"));
+}
+
+#[test]
+fn run_once_handles_one_message_and_exits() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "hello world",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+
+    let run_once = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--once",
+            "--topic",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(run_once.status.success());
+
+    let read = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--topic",
+            "review.done",
+        ])
+        .output()
+        .unwrap();
+    assert!(read.status.success());
+
+    let stdout = String::from_utf8_lossy(&read.stdout);
+    assert!(stdout.contains("review.done"));
+    assert!(stdout.contains("HELLO WORLD"));
+}
+
+#[test]
+fn run_once_blocks_until_message_is_published() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let worker = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--once",
+            "--topic",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "wake up now",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+
+    let worker_output = worker.wait_with_output().unwrap();
+    assert!(worker_output.status.success());
+
+    let read = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--topic",
+            "review.done",
+        ])
+        .output()
+        .unwrap();
+    assert!(read.status.success());
+
+    let stdout = String::from_utf8_lossy(&read.stdout);
+    assert!(stdout.contains("review.done"));
+    assert!(stdout.contains("WAKE UP NOW"));
 }

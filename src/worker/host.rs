@@ -1,4 +1,3 @@
-use std::thread;
 use std::time::Duration;
 
 use serde_json::json;
@@ -72,10 +71,7 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
 
     pub fn run_forever(&self) -> Result<()> {
         loop {
-            match self.run_once()? {
-                RunOnceOutcome::Idle => thread::sleep(self.config.idle_sleep),
-                RunOnceOutcome::Handled { .. } => {}
-            }
+            self.run_once_blocking()?;
         }
     }
 
@@ -88,6 +84,29 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
         else {
             return Ok(RunOnceOutcome::Idle);
         };
+
+        let context = PluginContext {
+            worker_name: self.config.worker_name.clone(),
+            timeout_seconds: self.config.timeout_seconds,
+        };
+        let result = self.plugin.run(PluginInput {
+            message: &message,
+            context: &context,
+        })?;
+        let follow_up = self.publish_result(&message, &claim.id, result)?;
+
+        Ok(RunOnceOutcome::Handled {
+            message_id: message.id,
+            follow_up_id: follow_up.id,
+        })
+    }
+
+    pub fn run_once_blocking(&self) -> Result<RunOnceOutcome> {
+        let (message, claim) = self.exchange.claim_next_blocking(
+            &self.config.topic,
+            &self.config.worker_name,
+            self.config.timeout_seconds as i64,
+        )?;
 
         let context = PluginContext {
             worker_name: self.config.worker_name.clone(),
