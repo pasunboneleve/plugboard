@@ -21,6 +21,16 @@ The exchange does not need to change for any of them:
 publish -> topic -> worker host -> plugin/backend -> follow-up topic
 ```
 
+For the common passive request/reply case, Plugboard can also sit at the
+edge as:
+
+```text
+request -> topic -> worker host -> plugin/backend -> follow-up topic -> request waiter
+```
+
+That helper still uses the same message log, conversation correlation,
+and advisory wakeup rules.
+
 ## 1. Simple stateless transforms
 
 This is the baseline worker contract:

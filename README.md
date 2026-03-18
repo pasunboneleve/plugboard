@@ -32,6 +32,16 @@ already-running agents or warm backends, and direct API plugins for
 hosted services. Those are plugin-layer choices rather than protocol
 changes in the core exchange.
 
+For the common passive request/reply case, the CLI also includes a thin
+edge helper:
+
+```text
+plugboard request --topic ... --success-topic ... --failure-topic ... --body ...
+```
+
+It publishes a request, waits for the first correlated follow-up in the
+same conversation, prints the reply body, and exits.
+
 Three-layer model
 -----------------
 

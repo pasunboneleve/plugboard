@@ -1,3 +1,5 @@
+use rusqlite::Connection;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
@@ -69,6 +71,7 @@ fn top_level_help_describes_topic_based_workflow() {
     assert!(stdout.contains("built around topics"));
     assert!(stdout.contains("publish"));
     assert!(stdout.contains("read"));
+    assert!(stdout.contains("request"));
     assert!(stdout.contains("long-running worker"));
 }
 
@@ -90,6 +93,15 @@ fn publish_and_read_help_are_concrete() {
     let read_stdout = String::from_utf8_lossy(&read_help.stdout);
     assert!(read_stdout.contains("already published to the exchange"));
     assert!(read_stdout.contains("tab-separated"));
+
+    let request_help = Command::new(binary)
+        .args(["request", "--help"])
+        .output()
+        .unwrap();
+    assert!(request_help.status.success());
+    let request_stdout = String::from_utf8_lossy(&request_help.stdout);
+    assert!(request_stdout.contains("correlated follow-up message"));
+    assert!(request_stdout.contains("same conversation"));
 }
 
 #[test]
@@ -274,4 +286,249 @@ fn persistent_worker_drains_burst_after_single_change_cycle() {
 
     worker.kill().unwrap();
     let _ = worker.wait_with_output().unwrap();
+}
+
+fn latest_message_for_topic(database: &std::path::Path, topic: &str) -> (String, String) {
+    let connection = Connection::open(database).unwrap();
+    connection
+        .query_row(
+            "SELECT id, conversation_id
+             FROM messages
+             WHERE topic = ?1
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+            [topic],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap()
+}
+
+#[test]
+fn request_publishes_and_waits_for_success_reply() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--body",
+            "Review this code",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "Looks good",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = request.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Looks good");
+}
+
+#[test]
+fn request_exits_nonzero_on_failure_reply() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--body",
+            "Review this code",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.failed",
+            "Needs tests",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = request.wait_with_output().unwrap();
+    assert!(!output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Needs tests");
+}
+
+#[test]
+fn request_matches_reply_by_conversation_not_topic_alone() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let mut request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--body",
+            "Review this code carefully",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let unrelated = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "Wrong conversation",
+            "--conversation-id",
+            "other-conversation",
+        ])
+        .output()
+        .unwrap();
+    assert!(unrelated.status.success());
+
+    thread::sleep(Duration::from_millis(250));
+    assert!(request.try_wait().unwrap().is_none());
+
+    let related = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "Right conversation",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(related.status.success());
+
+    let output = request.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Right conversation"
+    );
+}
+
+#[test]
+fn request_reads_body_from_stdin_when_flag_is_omitted() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let mut request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    request
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"stdin body")
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let request_body = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--topic",
+            "review.request",
+        ])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&request_body.stdout).contains("stdin body"));
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "stdin ok",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = request.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "stdin ok");
 }

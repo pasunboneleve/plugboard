@@ -277,8 +277,7 @@ impl Exchange for SqliteExchange {
         idle_sleep: Duration,
     ) -> Result<(Message, Claim)> {
         loop {
-            if let Some(notifier) = self.notifier() {
-                let ticket = notifier.prepare_wait()?;
+            if let Some(ticket) = self.prepare_wait_for_change()? {
                 if let Some(claimed) = self.claim_next_inner(topic, runner_name, lease_seconds)? {
                     return Ok(claimed);
                 }
@@ -293,15 +292,23 @@ impl Exchange for SqliteExchange {
         }
     }
 
-    fn wait_for_change(&self, timeout: Option<Duration>) -> Result<bool> {
+    fn prepare_wait_for_change(&self) -> Result<Option<Box<dyn crate::notifier::WaitTicket>>> {
         let Some(notifier) = self.notifier() else {
+            return Ok(None);
+        };
+
+        notifier.prepare_wait().map(Some)
+    }
+
+    fn wait_for_change(&self, timeout: Option<Duration>) -> Result<bool> {
+        let Some(ticket) = self.prepare_wait_for_change()? else {
             if let Some(timeout) = timeout {
                 std::thread::sleep(timeout);
             }
             return Ok(false);
         };
 
-        notifier.prepare_wait()?.wait(timeout)
+        ticket.wait(timeout)
     }
 
     fn complete_claim(&self, claim_id: &str) -> Result<Claim> {
