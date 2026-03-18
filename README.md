@@ -53,6 +53,18 @@ plugboard request --topic ... --success-topic ... --failure-topic ... --body ...
 It publishes a request, waits for the first correlated follow-up in the
 same conversation, prints the reply body, and exits.
 
+Read vs Inspect
+---------------
+
+Use `plugboard read` for normal usage. It is the routine way to read
+messages from a topic or conversation.
+
+Use `plugboard inspect` when you need forensic detail about raw message
+history or claim state. It can print a lot of historical output on a
+non-empty database, so it is best treated as a debugging command. For
+experiments, prefer using a temporary database so the output stays
+focused.
+
 Three-layer model
 -----------------
 

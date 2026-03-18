@@ -113,6 +113,17 @@ fn publish_and_read_help_are_concrete() {
     assert!(request_stdout.contains("RUST_LOG=debug"));
     assert!(request_stdout.contains("--wait-timeout-ms"));
     assert!(request_stdout.contains("--recheck-ms"));
+
+    let inspect_help = Command::new(binary)
+        .args(["inspect", "--help"])
+        .output()
+        .unwrap();
+    assert!(inspect_help.status.success());
+    let inspect_stdout = String::from_utf8_lossy(&inspect_help.stdout);
+    assert!(inspect_stdout.contains("debugging and forensics"));
+    assert!(inspect_stdout.contains("prefer `plugboard read --topic ...`"));
+    assert!(inspect_stdout.contains("large amount of historical data"));
+    assert!(inspect_stdout.contains("temporary database"));
 }
 
 #[test]
