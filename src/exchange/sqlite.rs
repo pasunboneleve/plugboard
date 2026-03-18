@@ -4,6 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use log::debug;
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
 use crate::domain::{Claim, ClaimStatus, Message, NewMessage};
@@ -54,6 +55,7 @@ impl SqliteExchange {
 
     fn emit_wakeup(&self) -> Result<()> {
         if let Some(notifier) = self.notifier() {
+            debug!("emitting advisory wakeup signal");
             notifier.emit()?;
         }
         Ok(())
@@ -183,6 +185,10 @@ impl SqliteExchange {
             .optional()?;
 
         let Some(message) = candidate else {
+            debug!(
+                "no claimable message found for topic={} worker_group={} worker_instance_id={}",
+                topic, worker_group, worker_instance_id
+            );
             transaction.commit()?;
             return Ok(None);
         };
@@ -217,6 +223,10 @@ impl SqliteExchange {
         let claim = Self::load_claim(&transaction, &claim_id)?
             .ok_or_else(|| PlugboardError::NotFound(format!("claim {claim_id}")))?;
         transaction.commit()?;
+        debug!(
+            "claimed message {} with claim {} topic={} worker_group={} worker_instance_id={} lease_until={}",
+            message.id, claim.id, topic, worker_group, worker_instance_id, claim.lease_until
+        );
         self.emit_wakeup()?;
         Ok(Some((message, claim)))
     }
@@ -344,25 +354,61 @@ impl Exchange for SqliteExchange {
         worker_group: &str,
         worker_instance_id: &str,
         lease_seconds: i64,
+        wait_timeout: Duration,
         idle_sleep: Duration,
     ) -> Result<(Message, Claim)> {
         loop {
             if let Some(ticket) = self.prepare_wait_for_change()? {
+                debug!(
+                    "armed wait ticket for topic={} worker_group={} worker_instance_id={} wait_timeout_ms={} idle_sleep_ms={}",
+                    topic,
+                    worker_group,
+                    worker_instance_id,
+                    wait_timeout.as_millis(),
+                    idle_sleep.as_millis()
+                );
+                debug!(
+                    "initial SQLite claim check for topic={} worker_group={} worker_instance_id={}",
+                    topic, worker_group, worker_instance_id
+                );
                 if let Some(claimed) =
                     self.claim_next_inner(topic, worker_group, worker_instance_id, lease_seconds)?
                 {
                     return Ok(claimed);
                 }
-                ticket.wait(Some(idle_sleep))?;
+                debug!(
+                    "no matching message for topic={}; waiting on notifier for up to {} ms",
+                    topic,
+                    wait_timeout.as_millis()
+                );
+                let woke = ticket.wait(Some(wait_timeout))?;
+                if woke {
+                    debug!("notifier event received for topic={}; re-checking", topic);
+                } else {
+                    debug!(
+                        "notifier wait timed out for topic={}; forcing immediate SQLite re-check",
+                        topic
+                    );
+                }
                 continue;
             }
 
+            debug!(
+                "no notifier available for topic={}; initial SQLite claim check",
+                topic
+            );
             if let Some(claimed) =
                 self.claim_next_inner(topic, worker_group, worker_instance_id, lease_seconds)?
             {
                 return Ok(claimed);
             }
+            debug!(
+                "no notifier and no matching message for topic={}; entering fallback sleep {} ms",
+                topic,
+                idle_sleep.as_millis()
+            );
             std::thread::sleep(idle_sleep);
+            debug!("fallback wake complete for topic={}; re-checking", topic);
         }
     }
 
@@ -690,6 +736,7 @@ mod tests {
                         "review-worker",
                         "instance-1",
                         5,
+                        Duration::from_millis(10),
                         Duration::from_millis(10),
                     )
                     .unwrap()

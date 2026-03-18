@@ -87,7 +87,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let body = match response {
         Ok(response) => response.into_string()?,
         Err(ureq::Error::Status(_, response)) => {
-            return Err(render_http_error(&response.into_string()?).into())
+            return Err(render_http_error(&response.into_string()?).into());
         }
         Err(ureq::Error::Transport(error)) => return Err(error.to_string().into()),
     };
@@ -166,6 +166,9 @@ mod tests {
 
     #[test]
     fn falls_back_to_plain_body_for_non_json_errors() {
-        assert_eq!(render_http_error("service unavailable"), "service unavailable");
+        assert_eq!(
+            render_http_error("service unavailable"),
+            "service unavailable"
+        );
     }
 }

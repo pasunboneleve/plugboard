@@ -57,7 +57,9 @@ fn run_help_describes_worker_host() {
     assert!(stdout.contains("writes the claimed message body"));
     assert!(stdout.contains("default is 60 seconds"));
     assert!(stdout.contains("Raise it for slower backends such as Gemini"));
-    assert!(stdout.contains("bounded re-checks every 250 ms by default"));
+    assert!(stdout.contains("bounded notifier waits and, when no notifier is available"));
+    assert!(stdout.contains("RUST_LOG=debug"));
+    assert!(stdout.contains("--wait-timeout-ms"));
     assert!(stdout.contains("--idle-sleep-ms"));
     assert!(stdout.contains("Interactive tools usually need a wrapper"));
 }
@@ -90,7 +92,10 @@ fn publish_and_read_help_are_concrete() {
     assert!(publish_stdout.contains("Topics are the addressing mechanism"));
     assert!(publish_stdout.contains("Plain-text message body"));
 
-    let read_help = Command::new(binary).args(["read", "--help"]).output().unwrap();
+    let read_help = Command::new(binary)
+        .args(["read", "--help"])
+        .output()
+        .unwrap();
     assert!(read_help.status.success());
     let read_stdout = String::from_utf8_lossy(&read_help.stdout);
     assert!(read_stdout.contains("already published to the exchange"));
@@ -104,7 +109,9 @@ fn publish_and_read_help_are_concrete() {
     let request_stdout = String::from_utf8_lossy(&request_help.stdout);
     assert!(request_stdout.contains("correlated follow-up message"));
     assert!(request_stdout.contains("same conversation"));
-    assert!(request_stdout.contains("bounded re-checks every 250 ms by default"));
+    assert!(request_stdout.contains("bounded notifier waits and, when no notifier is available"));
+    assert!(request_stdout.contains("RUST_LOG=debug"));
+    assert!(request_stdout.contains("--wait-timeout-ms"));
     assert!(request_stdout.contains("--recheck-ms"));
 }
 
@@ -439,7 +446,10 @@ fn request_exits_nonzero_on_failure_reply() {
 
     let output = request.wait_with_output().unwrap();
     assert!(!output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Needs tests");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "Needs tests"
+    );
 }
 
 #[test]
@@ -745,6 +755,41 @@ fn persistent_worker_handles_rapid_publish_sequence_without_waiting_for_fallback
         .unwrap();
 
     wait_for_file(&database, Duration::from_secs(2));
+    let warmup = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            &request_topic,
+            "warmup",
+        ])
+        .output()
+        .unwrap();
+    assert!(warmup.status.success());
+
+    let warmup_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let read = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "read",
+                "--topic",
+                &success_topic,
+            ])
+            .output()
+            .unwrap();
+        assert!(read.status.success());
+        let stdout = String::from_utf8_lossy(&read.stdout);
+        if stdout.matches(&success_topic).count() >= 1 {
+            break;
+        }
+        if Instant::now() >= warmup_deadline {
+            panic!("worker did not process warmup message in time");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
     let start = Instant::now();
     for body in ["first", "second", "third"] {
         let publish = Command::new(binary)
@@ -774,7 +819,7 @@ fn persistent_worker_handles_rapid_publish_sequence_without_waiting_for_fallback
             .unwrap();
         assert!(read.status.success());
         let stdout = String::from_utf8_lossy(&read.stdout);
-        if stdout.matches(&success_topic).count() == 3 {
+        if stdout.matches(&success_topic).count() == 4 {
             break;
         }
         if Instant::now() >= deadline {

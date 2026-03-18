@@ -2,9 +2,10 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::Instant;
 use std::time::Duration;
+use std::time::Instant;
 
+use log::debug;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 
 use crate::error::Result;
@@ -78,19 +79,24 @@ impl WaitTicket for FileWaitTicket {
     fn wait(self: Box<Self>, timeout: Option<Duration>) -> Result<bool> {
         let ticket = *self;
         let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        debug!(
+            "wait ticket armed for {} watched paths timeout_ms={}",
+            ticket.watched_paths.len(),
+            timeout.map(|value| value.as_millis()).unwrap_or(0)
+        );
         loop {
             let event = match timeout {
                 Some(_) => {
-                    let Some(remaining) = deadline.and_then(|deadline| {
-                        remaining_until(deadline, Instant::now())
-                    }) else {
+                    let Some(remaining) =
+                        deadline.and_then(|deadline| remaining_until(deadline, Instant::now()))
+                    else {
                         return Ok(false);
                     };
                     match ticket.receiver.recv_timeout(remaining) {
-                    Ok(event) => event?,
-                    Err(RecvTimeoutError::Timeout) => return Ok(false),
-                    Err(RecvTimeoutError::Disconnected) => return Ok(false),
-                }
+                        Ok(event) => event?,
+                        Err(RecvTimeoutError::Timeout) => return Ok(false),
+                        Err(RecvTimeoutError::Disconnected) => return Ok(false),
+                    }
                 }
                 None => match ticket.receiver.recv() {
                     Ok(event) => event?,
@@ -98,7 +104,15 @@ impl WaitTicket for FileWaitTicket {
                 },
             };
 
-            if event.paths.iter().any(|path| matches_related_path(path, &ticket.watched_paths)) {
+            if event
+                .paths
+                .iter()
+                .any(|path| matches_related_path(path, &ticket.watched_paths))
+            {
+                debug!(
+                    "notifier event matched watched SQLite path(s): {:?}",
+                    event.paths
+                );
                 return Ok(true);
             }
         }
@@ -155,7 +169,10 @@ mod tests {
     #[test]
     fn matches_database_and_wal_paths() {
         let watched = related_sqlite_paths(Path::new("/tmp/plugboard.db"));
-        assert!(matches_related_path(Path::new("/tmp/plugboard.db"), &watched));
+        assert!(matches_related_path(
+            Path::new("/tmp/plugboard.db"),
+            &watched
+        ));
         assert!(matches_related_path(
             Path::new("/tmp/plugboard.db-wal"),
             &watched
@@ -198,6 +215,9 @@ mod tests {
         let deadline = start + Duration::from_millis(50);
         assert!(remaining_until(deadline, start).unwrap() <= Duration::from_millis(50));
         assert_eq!(remaining_until(deadline, deadline), Some(Duration::ZERO));
-        assert_eq!(remaining_until(deadline, deadline + Duration::from_millis(1)), None);
+        assert_eq!(
+            remaining_until(deadline, deadline + Duration::from_millis(1)),
+            None
+        );
     }
 }

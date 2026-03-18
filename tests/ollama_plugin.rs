@@ -101,8 +101,10 @@ fn ollama_plugin_posts_message_body_to_local_service() {
 
 #[test]
 fn ollama_plugin_reports_json_error_message() {
-    let (base_url, _request_rx) =
-        spawn_fake_ollama("500 Internal Server Error", r#"{ "error": "model not found" }"#);
+    let (base_url, _request_rx) = spawn_fake_ollama(
+        "500 Internal Server Error",
+        r#"{ "error": "model not found" }"#,
+    );
     let binary = env!("CARGO_BIN_EXE_ollama-plugin");
 
     let output = Command::new(binary)

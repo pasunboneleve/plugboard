@@ -29,6 +29,14 @@ The repository includes a deterministic demo plugin, a real Gemini
 adapter, and a local-model adapter built around Ollama for low-latency
 local request/reply workflows.
 
+Operationally, blocking worker and request/reply paths use advisory
+local wakeups plus bounded SQLite re-checks. The default notifier wait
+timeout is 250 ms, and the no-notifier periodic fallback interval is
+also 250 ms. Targeted debug visibility is available with
+`RUST_LOG=debug`. The main tuning knobs are
+`plugboard run --wait-timeout-ms --idle-sleep-ms` and
+`plugboard request --wait-timeout-ms --recheck-ms`.
+
 Plugboard can be useful with several backend styles: simple stateless
 transforms, low-latency local model plugins, plugins that talk to
 already-running agents or warm backends, and direct API plugins for

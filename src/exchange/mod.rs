@@ -27,6 +27,7 @@ pub trait Exchange {
         worker_group: &str,
         worker_instance_id: &str,
         lease_seconds: i64,
+        wait_timeout: Duration,
         idle_sleep: Duration,
     ) -> Result<(Message, Claim)>;
     fn prepare_wait_for_change(&self) -> Result<Option<Box<dyn WaitTicket>>>;
