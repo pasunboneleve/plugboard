@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS claims (
     id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL REFERENCES messages(id),
     runner_name TEXT NOT NULL,
+    worker_group TEXT NOT NULL,
+    worker_instance_id TEXT NOT NULL,
     claimed_at TEXT NOT NULL,
     lease_until TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'failed', 'timed_out')),
@@ -32,5 +34,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_active_message
 CREATE INDEX IF NOT EXISTS idx_claims_message_id
     ON claims(message_id);
 
+CREATE INDEX IF NOT EXISTS idx_claims_message_status_lease
+    ON claims(message_id, status, lease_until);
+
 CREATE INDEX IF NOT EXISTS idx_claims_runner_status
     ON claims(runner_name, status);
+
+CREATE INDEX IF NOT EXISTS idx_claims_worker_group_status
+    ON claims(worker_group, status);

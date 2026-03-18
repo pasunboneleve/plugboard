@@ -208,7 +208,8 @@ Suggested fields:
 
 * `id`
 * `message_id`
-* `runner_name`
+* `worker_group`
+* `worker_instance_id`
 * `claimed_at`
 * `lease_until`
 * `status`
@@ -225,7 +226,12 @@ Notes:
 
 * claim state is separate from message content
 * claims are about processing, not communication
-* a message may have zero or one active claim in v1
+* `worker_group` is the stable logical worker class or configuration
+* `worker_instance_id` is a fresh per-process identifier for one concrete worker instance
+* a claim is live only while `status = 'active'` and `lease_until` is still in the future
+* expired active claims are discarded in the claim path itself in v1
+* terminal claims remain as processing history and continue to make a message non-claimable in v1
+* a message may have zero or one live active claim in v1
 
 If later you need richer execution state, add it later. Do not
 prebuild it now.
@@ -255,7 +261,8 @@ CREATE INDEX idx_messages_conversation_id
 CREATE TABLE claims (
     id TEXT PRIMARY KEY,
     message_id TEXT NOT NULL REFERENCES messages(id),
-    runner_name TEXT NOT NULL,
+    worker_group TEXT NOT NULL,
+    worker_instance_id TEXT NOT NULL,
     claimed_at TEXT NOT NULL,
     lease_until TEXT NOT NULL,
     status TEXT NOT NULL,
@@ -269,8 +276,11 @@ CREATE UNIQUE INDEX idx_claims_active_message
 CREATE INDEX idx_claims_message_id
     ON claims(message_id);
 
-CREATE INDEX idx_claims_runner_status
-    ON claims(runner_name, status);
+CREATE INDEX idx_claims_message_status_lease
+    ON claims(message_id, status, lease_until);
+
+CREATE INDEX idx_claims_worker_group_status
+    ON claims(worker_group, status);
 ```
 
 This is enough for v1.
@@ -311,7 +321,7 @@ topic.
 The exchange should atomically:
 
 * find a matching message
-* ensure it has no active claim
+* ensure it has no live active claim and no terminal processing record
 * create an active claim row
 
 This operation must be transactional.
@@ -361,7 +371,7 @@ Instead, claiming should happen in one transaction.
 Conceptually:
 
 1. select one eligible message for the topic
-2. verify it has no active claim
+2. verify it has no live active claim and has not already completed, failed, or timed out
 3. insert an active claim
 4. commit
 
@@ -371,12 +381,15 @@ transaction logic is not important yet. What matters is the semantics.
 For v1, “eligible” can simply mean:
 
 * message topic matches
-* no active claim exists
+* no live active claim exists
+* no terminal claim row exists
 
 Do not add priority, scheduling, or fairness rules yet.
 
-The claim query should check for the absence of an **active** claim,
-not merely the absence of any historical claim row.
+The claim query should treat expired active claims as stale ownership
+records and discard them transactionally before deciding eligibility.
+Terminal claims remain as processing history and still block replay in
+v1.
 
 ## Activation and wakeup model
 

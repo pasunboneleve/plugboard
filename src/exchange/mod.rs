@@ -17,13 +17,15 @@ pub trait Exchange {
     fn claim_next(
         &self,
         topic: &str,
-        runner_name: &str,
+        worker_group: &str,
+        worker_instance_id: &str,
         lease_seconds: i64,
     ) -> Result<Option<(Message, Claim)>>;
     fn claim_next_blocking(
         &self,
         topic: &str,
-        runner_name: &str,
+        worker_group: &str,
+        worker_instance_id: &str,
         lease_seconds: i64,
         idle_sleep: Duration,
     ) -> Result<(Message, Claim)>;

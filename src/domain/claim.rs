@@ -43,7 +43,8 @@ impl fmt::Display for ClaimStatus {
 pub struct Claim {
     pub id: String,
     pub message_id: String,
-    pub runner_name: String,
+    pub worker_group: String,
+    pub worker_instance_id: String,
     pub claimed_at: String,
     pub lease_until: String,
     pub status: ClaimStatus,

@@ -18,9 +18,10 @@ pub fn execute(exchange: &impl Exchange, args: InspectArgs) -> Result<()> {
             let claims = exchange.claims_for_message(message_id)?;
             for claim in claims {
                 println!(
-                    "claim {} runner={} status={} claimed_at={} lease_until={} completed_at={}",
+                    "claim {} worker_group={} worker_instance_id={} status={} claimed_at={} lease_until={} completed_at={}",
                     claim.id,
-                    claim.runner_name,
+                    claim.worker_group,
+                    claim.worker_instance_id,
                     claim.status,
                     claim.claimed_at,
                     claim.lease_until,

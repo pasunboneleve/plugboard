@@ -231,6 +231,28 @@ This preserves the distinction between:
 * what was communicated
 * what operational step was taken to process it
 
+For worker pools, Plugboard distinguishes between:
+
+* a stable `worker_group`, which identifies the logical worker class or configuration
+* an ephemeral `worker_instance_id`, which identifies one concrete running process
+
+Claim ownership is recorded against the instance id, while the worker
+group makes inspection and pool-level reasoning easier.
+
+A claim is considered live only when:
+
+* `status = active`
+* `lease_until > now`
+
+Lease expiry is the v1 stale-claim recovery mechanism. Plugboard does
+not need a startup sweep, background sweeper, or heartbeat protocol to
+recover from a crashed worker in this first version. Recovery happens
+in the transactional claim path itself.
+
+Terminal claims still remain as processing history in v1, so lease
+recovery applies only to stale active ownership, not to messages that
+already completed, failed, or timed out cleanly.
+
 ### Topics route interest
 
 Each message has a topic. Topics are the primary mechanism for routing
