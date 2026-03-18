@@ -22,4 +22,6 @@ pub enum PlugboardError {
     NotFound(String),
     #[error("command must not be empty")]
     EmptyCommand,
+    #[error("command should exit with code {code} without additional stderr output")]
+    SilentExit { code: i32 },
 }

@@ -1,5 +1,4 @@
 use std::io::{self, Read};
-use std::process;
 
 use clap::Args;
 
@@ -52,7 +51,7 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
             if reply.topic == args.success_topic {
                 return Ok(());
             }
-            process::exit(1);
+            return Err(PlugboardError::SilentExit { code: 1 });
         }
 
         match ticket {
