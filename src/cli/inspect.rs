@@ -1,3 +1,7 @@
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+
+use crate::domain::ClaimStatus;
 use clap::Args;
 
 use crate::error::Result;
@@ -17,12 +21,15 @@ pub fn execute(exchange: &impl Exchange, args: InspectArgs) -> Result<()> {
             print_message(&message);
             let claims = exchange.claims_for_message(message_id)?;
             for claim in claims {
+                let state = claim_state(&claim);
                 println!(
-                    "claim {} worker_group={} worker_instance_id={} status={} claimed_at={} lease_until={} completed_at={}",
+                    "claim {} message_id={} state={} status={} worker_group={} worker_instance_id={} claimed_at={} lease_until={} completed_at={}",
                     claim.id,
+                    claim.message_id,
+                    state,
+                    claim.status,
                     claim.worker_group,
                     claim.worker_instance_id,
-                    claim.status,
                     claim.claimed_at,
                     claim.lease_until,
                     claim.completed_at.unwrap_or_else(|| "-".into()),
@@ -60,4 +67,17 @@ fn print_message(message: &crate::domain::Message) {
         "metadata_json={}",
         message.metadata_json.as_deref().unwrap_or("-"),
     );
+}
+
+fn claim_state(claim: &crate::domain::Claim) -> &'static str {
+    if claim.status != ClaimStatus::Active {
+        return "terminal";
+    }
+
+    let lease_until = OffsetDateTime::parse(&claim.lease_until, &Rfc3339);
+    match lease_until {
+        Ok(lease_until) if lease_until > OffsetDateTime::now_utc() => "live_active",
+        Ok(_) => "expired_active",
+        Err(_) => "unknown_lease",
+    }
 }

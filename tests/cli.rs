@@ -1,8 +1,8 @@
 use rusqlite::Connection;
 use std::io::Write;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[test]
 fn publish_and_read_commands_work() {
@@ -303,6 +303,34 @@ fn latest_message_for_topic(database: &std::path::Path, topic: &str) -> (String,
         .unwrap()
 }
 
+fn unique_topic(prefix: &str) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("{prefix}.{nanos}")
+}
+
+fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "child process did not exit within {:?}\nstdout:\n{}\nstderr:\n{}",
+                timeout,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
 #[test]
 fn request_publishes_and_waits_for_success_reply() {
     let temp = tempfile::tempdir().unwrap();
@@ -531,4 +559,194 @@ fn request_reads_body_from_stdin_when_flag_is_omitted() {
     let output = request.wait_with_output().unwrap();
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "stdin ok");
+}
+
+#[test]
+fn request_wakes_run_once_worker_and_returns_reply_on_fresh_topic() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+    let request_topic = unique_topic("review.request");
+    let success_topic = format!("{request_topic}.done");
+    let failure_topic = format!("{request_topic}.failed");
+
+    let worker = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--once",
+            "--topic",
+            &request_topic,
+            "--success-topic",
+            &success_topic,
+            "--failure-topic",
+            &failure_topic,
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            &request_topic,
+            "--success-topic",
+            &success_topic,
+            "--failure-topic",
+            &failure_topic,
+            "--body",
+            "wake me up",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let request_output = wait_with_timeout(request, Duration::from_secs(10));
+    assert!(request_output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&request_output.stdout).trim(),
+        "WAKE ME UP"
+    );
+
+    let worker_output = wait_with_timeout(worker, Duration::from_secs(10));
+    assert!(worker_output.status.success());
+}
+
+#[test]
+fn request_wakes_persistent_worker_and_returns_reply_on_fresh_topic() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+    let request_topic = unique_topic("review.request");
+    let success_topic = format!("{request_topic}.done");
+    let failure_topic = format!("{request_topic}.failed");
+
+    let mut worker = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--topic",
+            &request_topic,
+            "--success-topic",
+            &success_topic,
+            "--failure-topic",
+            &failure_topic,
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            &request_topic,
+            "--success-topic",
+            &success_topic,
+            "--failure-topic",
+            &failure_topic,
+            "--body",
+            "fresh topic",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let request_output = wait_with_timeout(request, Duration::from_secs(10));
+    assert!(request_output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&request_output.stdout).trim(),
+        "FRESH TOPIC"
+    );
+
+    let _ = worker.kill();
+    let worker_output = worker.wait_with_output().unwrap();
+    assert!(
+        worker_output.status.success() || worker_output.status.code().is_none(),
+        "persistent worker stderr:\n{}",
+        String::from_utf8_lossy(&worker_output.stderr),
+    );
+}
+
+#[test]
+fn inspect_shows_claim_identity_and_expired_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "debug.request",
+            "inspect me",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+
+    let (message_id, _) = latest_message_for_topic(&database, "debug.request");
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "INSERT INTO claims (
+                 id,
+                 message_id,
+                 runner_name,
+                 worker_group,
+                 worker_instance_id,
+                 claimed_at,
+                 lease_until,
+                 status,
+                 completed_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', NULL)",
+            [
+                "claim-1",
+                &message_id,
+                "debug-worker",
+                "debug-worker",
+                "instance-1",
+                "2020-01-01T00:00:00Z",
+                "2020-01-01T00:00:00Z",
+            ],
+        )
+        .unwrap();
+
+    let inspect = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "inspect",
+            "--message",
+            &message_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(inspect.status.success());
+
+    let stdout = String::from_utf8_lossy(&inspect.stdout);
+    assert!(stdout.contains("message_id="));
+    assert!(stdout.contains("worker_group=debug-worker"));
+    assert!(stdout.contains("worker_instance_id=instance-1"));
+    assert!(stdout.contains("status=active"));
+    assert!(stdout.contains("state=expired_active"));
 }

@@ -343,7 +343,7 @@ impl Exchange for SqliteExchange {
                 {
                     return Ok(claimed);
                 }
-                ticket.wait(None)?;
+                ticket.wait(Some(idle_sleep))?;
                 continue;
             }
 

@@ -363,13 +363,14 @@ The exchange (SQLite) is the source of truth.
 
 To avoid polling:
 
-* publishing a message SHOULD trigger a local wakeup signal
+* publishing a message MAY coincide with a local wakeup hint
 * workers MAY block waiting for such signals
 * wakeups are advisory, not authoritative
 * workers MUST always claim messages transactionally
 
-The system must not rely on polling intervals for correctness or
-latency.
+The system must not rely on filesystem notification delivery for
+correctness. A bounded re-check interval around blocking waits is
+acceptable because the database remains authoritative.
 
 ### Design principle
 

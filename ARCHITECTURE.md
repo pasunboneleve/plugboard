@@ -428,7 +428,7 @@ The wakeup mechanism should satisfy these rules:
 
 * it is local to one machine
 * it is tied to one exchange database
-* publish emits wakeup after successful commit
+* a publish may coincide with a local wakeup hint, but correctness must not depend on it
 * waiting workers wake and retry `claim_next()`
 * correctness does not depend on delivery of the wakeup itself
 
@@ -445,8 +445,9 @@ Possible implementations include:
 * Unix domain socket notifier
 * filesystem notification on database or WAL changes
 
-For v1, the preferred direction is a local notifier abstraction rather
-than treating polling as the primary reactive path.
+For v1, the preferred direction is a local notifier abstraction plus a
+bounded periodic re-check, rather than trusting filesystem
+notifications as a correctness mechanism.
 
 ## Worker modes
 
@@ -483,8 +484,10 @@ A reactive worker:
 
 Reactive mode should use blocking wait plus transactional claim.
 
-It must not be implemented as “poll every N milliseconds until
-something appears”.
+Blocking is an optimization over polling, not a correctness
+mechanism. Reactive mode may still use bounded re-check intervals
+around the blocking wait so missed advisory wakeups do not strand a
+worker forever.
 
 ## Worker host API shape
 
