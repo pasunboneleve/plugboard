@@ -51,6 +51,7 @@ fn run_help_describes_worker_host() {
     assert!(stdout.contains("worker host"));
     assert!(stdout.contains("claims one message at a time"));
     assert!(stdout.contains("With --once"));
+    assert!(stdout.contains("drains all currently claimable work"));
     assert!(stdout.contains("writes the claimed message body"));
     assert!(stdout.contains("default is 60 seconds"));
     assert!(stdout.contains("Raise it for slower backends such as Gemini"));
@@ -207,4 +208,70 @@ fn run_once_blocks_until_message_is_published() {
     let stdout = String::from_utf8_lossy(&read.stdout);
     assert!(stdout.contains("review.done"));
     assert!(stdout.contains("WAKE UP NOW"));
+}
+
+#[test]
+fn persistent_worker_drains_burst_after_single_change_cycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let mut worker = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "run",
+            "--topic",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--",
+            "sh",
+            "-c",
+            "tr a-z A-Z",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+
+    for body in ["first message", "second message"] {
+        let publish = Command::new(binary)
+            .args([
+                "--database",
+                database.to_str().unwrap(),
+                "publish",
+                "review.request",
+                body,
+            ])
+            .output()
+            .unwrap();
+        assert!(publish.status.success());
+    }
+
+    thread::sleep(Duration::from_millis(1000));
+
+    let read = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--topic",
+            "review.done",
+        ])
+        .output()
+        .unwrap();
+    assert!(read.status.success());
+
+    let stdout = String::from_utf8_lossy(&read.stdout);
+    assert_eq!(stdout.matches("review.done").count(), 2);
+    assert!(stdout.contains("FIRST MESSAGE"));
+    assert!(stdout.contains("SECOND MESSAGE"));
+
+    worker.kill().unwrap();
+    let _ = worker.wait_with_output().unwrap();
 }

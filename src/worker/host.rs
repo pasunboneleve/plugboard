@@ -72,6 +72,7 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
     pub fn run_forever(&self) -> Result<()> {
         loop {
             self.run_once_blocking()?;
+            self.drain_ready_work()?;
         }
     }
 
@@ -85,20 +86,7 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
             return Ok(RunOnceOutcome::Idle);
         };
 
-        let context = PluginContext {
-            worker_name: self.config.worker_name.clone(),
-            timeout_seconds: self.config.timeout_seconds,
-        };
-        let result = self.plugin.run(PluginInput {
-            message: &message,
-            context: &context,
-        })?;
-        let follow_up = self.publish_result(&message, &claim.id, result)?;
-
-        Ok(RunOnceOutcome::Handled {
-            message_id: message.id,
-            follow_up_id: follow_up.id,
-        })
+        self.handle_claimed_message(message, claim)
     }
 
     pub fn run_once_blocking(&self) -> Result<RunOnceOutcome> {
@@ -109,6 +97,19 @@ impl<'a, E: Exchange, P: Plugin> WorkerHost<'a, E, P> {
             self.config.idle_sleep,
         )?;
 
+        self.handle_claimed_message(message, claim)
+    }
+
+    fn drain_ready_work(&self) -> Result<()> {
+        while matches!(self.run_once()?, RunOnceOutcome::Handled { .. }) {}
+        Ok(())
+    }
+
+    fn handle_claimed_message(
+        &self,
+        message: Message,
+        claim: crate::domain::Claim,
+    ) -> Result<RunOnceOutcome> {
         let context = PluginContext {
             worker_name: self.config.worker_name.clone(),
             timeout_seconds: self.config.timeout_seconds,
