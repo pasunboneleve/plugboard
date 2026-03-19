@@ -77,6 +77,8 @@ When I say:
 
 ask ollama: <prompt>
 ask ollama with <model>: <prompt>
+send ollama: <prompt>
+send ollama with <model>: <prompt>
 check ollama
 
 You must execute this flow exactly:
@@ -106,6 +108,8 @@ You must execute this flow exactly:
    - The output of that command is the final result.
    - Return that result exactly once.
 
+This is the blocking path. Use it when the user wants the answer now.
+
 For async tracking, prefer the request identifiers that Plugboard
 already returns at publish time:
 
@@ -133,6 +137,42 @@ Only fall back to matching request body text if those identifiers are
 not available. When doing that, prefer the latest plausible request and
 say explicitly that the result is heuristic.
 
+### Send ollama
+
+When I say:
+
+send ollama: <prompt>
+send ollama with <model>: <prompt>
+
+You must execute this flow exactly:
+
+1. Ensure the worker is running.
+   - If unsure, start it using:
+     ./scripts/run-ollama-worker
+   - Run it in a background terminal/session.
+   - Say "Starting Ollama worker." only if you actually start it.
+
+2. Publish exactly once using the non-blocking path:
+
+   ./target/debug/plugboard publish ollama.request "<prompt>" \
+     [--meta model=<model>] \
+     --json
+
+3. Return the publish output only.
+   - Capture `conversation_id`
+   - Do not wait for the reply
+
+Later follow-up should prefer:
+
+./target/debug/plugboard check \
+  --conversation-id <conversation-id> \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json
+
+This is the non-blocking path. Use it when the user wants to continue
+working and check later.
+
 ### Preferred Plugboard pattern
 
 Unless the user explicitly asks to block and wait, prefer the
@@ -148,7 +188,7 @@ asynchronous model:
 
 For agents and tools, the default async pattern is:
 
-1. send request
+1. send or publish work
 2. capture `conversation_id`
 3. later check by `conversation_id`
 4. determine whether a terminal success or failure reply exists

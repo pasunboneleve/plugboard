@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use clap::Args;
 use log::debug;
-use serde_json::{Map, Value, json};
-
 use crate::domain::{Message, NewMessage};
+use crate::cli::message_identifiers::emit_publish_identifiers;
+use crate::cli::message_metadata::{merge_meta_into_metadata_json, parse_meta_args};
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
 
@@ -75,7 +75,7 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
         "published request id={} conversation_id={} topic={}",
         request.id, request.conversation_id, request.topic
     );
-    emit_request_identifiers(&request, args.json)?;
+    emit_publish_identifiers(&request, args.json)?;
 
     let reply = await_reply(
         exchange,
@@ -93,75 +93,10 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
     }
 }
 
-fn emit_request_identifiers(request: &Message, json_output: bool) -> Result<()> {
-    if json_output {
-        eprintln!(
-            "{}",
-            serde_json::to_string(&json!({
-                "event": "published",
-                "message_id": request.id,
-                "conversation_id": request.conversation_id,
-                "topic": request.topic,
-            }))?
-        );
-    } else {
-        eprintln!(
-            "published message_id={} conversation_id={} topic={}",
-            request.id, request.conversation_id, request.topic
-        );
-    }
-    Ok(())
-}
-
 fn read_body_from_stdin() -> Result<String> {
     let mut body = String::new();
     io::stdin().read_to_string(&mut body)?;
     Ok(body)
-}
-
-fn parse_meta_args(entries: &[String]) -> Result<Vec<(String, Value)>> {
-    entries.iter().map(|entry| parse_meta_arg(entry)).collect()
-}
-
-fn parse_meta_arg(entry: &str) -> Result<(String, Value)> {
-    let Some((key, raw_value)) = entry.split_once('=') else {
-        return Err(PlugboardError::InvalidMetadataArgument {
-            input: entry.to_string(),
-        });
-    };
-    if key.is_empty() {
-        return Err(PlugboardError::InvalidMetadataArgument {
-            input: entry.to_string(),
-        });
-    }
-
-    let value = serde_json::from_str::<Value>(raw_value)
-        .unwrap_or_else(|_| Value::String(raw_value.to_string()));
-    Ok((key.to_string(), value))
-}
-
-fn merge_meta_into_metadata_json(
-    existing: Option<&str>,
-    meta: &[(String, Value)],
-) -> Result<Option<String>> {
-    if meta.is_empty() {
-        return Ok(existing.map(str::to_string));
-    }
-
-    let mut root = match existing {
-        Some(existing) => serde_json::from_str::<Value>(existing)?,
-        None => Value::Object(Map::new()),
-    };
-    let Some(root_object) = root.as_object_mut() else {
-        return Err(PlugboardError::InvalidMetadataJsonObject);
-    };
-
-    let mut meta_object = Map::new();
-    for (key, value) in meta {
-        meta_object.insert(key.clone(), value.clone());
-    }
-    root_object.insert("meta".into(), Value::Object(meta_object));
-    Ok(Some(serde_json::to_string(&root)?))
 }
 
 fn find_reply(
@@ -244,9 +179,9 @@ fn await_reply(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        await_reply, emit_request_identifiers, merge_meta_into_metadata_json, parse_meta_args,
-    };
+    use super::await_reply;
+    use crate::cli::message_identifiers::emit_publish_identifiers;
+    use crate::cli::message_metadata::{merge_meta_into_metadata_json, parse_meta_args};
     use crate::domain::{Claim, Message, NewMessage};
     use crate::error::Result;
     use crate::exchange::Exchange;
@@ -453,6 +388,6 @@ mod tests {
     #[test]
     fn emits_json_request_identifiers() {
         let request = request_message();
-        emit_request_identifiers(&request, true).unwrap();
+        emit_publish_identifiers(&request, true).unwrap();
     }
 }

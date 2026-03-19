@@ -53,6 +53,24 @@ Later, check for replies with:
 `plugboard request` only publishes a message and waits for a reply; it
 does not execute the backend itself.
 
+For the non-blocking path, publish and capture identifiers immediately:
+
+```bash
+./target/debug/plugboard publish ollama.request "1+3" \
+  --meta model=llama3.2:latest \
+  --json
+```
+
+Then later check:
+
+```bash
+./target/debug/plugboard check \
+  --conversation-id <conversation-id> \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json
+```
+
 `./scripts/run-ollama-worker` starts a long-lived worker for
 `ollama.request`. Keep it running in a separate terminal while sending
 requests.
@@ -109,6 +127,11 @@ It publishes a request, waits for the first correlated follow-up in the
 same conversation, prints the reply body, and exits. Treat that as a
 convenience wrapper around the asynchronous exchange, not as the main
 workflow to optimize your mental model around.
+
+That gives Plugboard two explicit operator paths:
+
+* blocking: `request`
+* non-blocking: `publish` now, `check` later
 
 On publish, `plugboard request` also emits the request `message_id` and
 `conversation_id` on `stderr` in a stable format. Agents should capture

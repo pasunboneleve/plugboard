@@ -1,5 +1,7 @@
 pub mod check;
 pub mod inspect;
+pub mod message_identifiers;
+pub mod message_metadata;
 pub mod publish;
 pub mod read;
 pub mod request;

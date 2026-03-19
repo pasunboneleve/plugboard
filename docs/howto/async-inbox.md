@@ -70,6 +70,18 @@ which emits:
 
 Capture `conversation_id`. That is the primary async tracking key.
 
+For a truly non-blocking send, use `publish` instead:
+
+```bash
+./target/debug/plugboard publish \
+  ollama.request \
+  "Summarize Rust ownership in one short paragraph." \
+  --meta model=llama3.2:latest \
+  --json
+```
+
+That returns immediately. Capture `conversation_id`, then check later.
+
 For agents and tools, prefer the JSON form when parse reliability
 matters. The intended pattern is:
 
@@ -110,6 +122,16 @@ conversation id instead:
 That is the preferred way for agents and tools to check a specific
 request later.
 
+For a compact terminal-state check, use:
+
+```bash
+./target/debug/plugboard check \
+  --conversation-id <conversation-id> \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json
+```
+
 A terminal reply is any message in that conversation whose topic is the
 configured success or failure topic.
 
@@ -136,7 +158,7 @@ heuristic and less reliable than using `message_id` or
 
 ## Agent-oriented example
 
-1. Send the request:
+1. Blocking path if you want the answer now:
 
    ```bash
    ./target/debug/plugboard request \
@@ -147,12 +169,22 @@ heuristic and less reliable than using `message_id` or
      --body "Rewrite this status update in calmer language."
    ```
 
-2. Capture the publish event from `stderr` and store:
+2. Non-blocking path if you want to continue working:
+
+   ```bash
+   ./target/debug/plugboard publish \
+     ollama.request \
+     "Rewrite this status update in calmer language." \
+     --meta model=llama3.2:latest \
+     --json
+   ```
+
+3. Capture the publish event from `stderr` and store:
 
    * `message_id`
    * `conversation_id`
 
-3. Later, check the exact exchange:
+4. Later, check the exact exchange:
 
    ```bash
    ./target/debug/plugboard check \
@@ -162,7 +194,7 @@ heuristic and less reliable than using `message_id` or
      --json
    ```
 
-4. Report one of:
+5. Report one of:
 
    * `Yes, it replied ...` if `state` is `success` or `failure`
    * `No reply yet.` if `state` is `pending`

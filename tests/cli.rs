@@ -92,6 +92,9 @@ fn publish_and_read_help_are_concrete() {
     let publish_stdout = String::from_utf8_lossy(&publish_help.stdout);
     assert!(publish_stdout.contains("Topics are the addressing mechanism"));
     assert!(publish_stdout.contains("Plain-text message body"));
+    assert!(publish_stdout.contains("non-blocking sends"));
+    assert!(publish_stdout.contains("--meta"));
+    assert!(publish_stdout.contains("--json"));
 
     let read_help = Command::new(binary)
         .args(["read", "--help"])
@@ -209,6 +212,51 @@ fn request_rejects_invalid_meta_argument() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("expected KEY=VALUE"));
+}
+
+#[test]
+fn publish_can_merge_meta_and_emit_json_identifiers() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "ollama.request",
+            "hello",
+            "--meta",
+            "model=llama3.2:latest",
+            "--meta",
+            "temperature=0.7",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value = serde_json::from_str(stderr.lines().next().unwrap()).unwrap();
+    assert_eq!(parsed["event"], "published");
+    let message_id = parsed["message_id"].as_str().unwrap();
+    let conversation_id = parsed["conversation_id"].as_str().unwrap();
+    assert_eq!(parsed["topic"], "ollama.request");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), message_id);
+    assert_eq!(message_id, conversation_id);
+
+    let connection = Connection::open(&database).unwrap();
+    let metadata_json: String = connection
+        .query_row(
+            "SELECT metadata_json FROM messages WHERE id = ?1",
+            [message_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let stored: serde_json::Value = serde_json::from_str(&metadata_json).unwrap();
+    assert_eq!(stored["meta"]["model"], "llama3.2:latest");
+    assert_eq!(stored["meta"]["temperature"], 0.7);
 }
 
 #[test]
