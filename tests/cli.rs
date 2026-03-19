@@ -283,6 +283,32 @@ fn publish_can_merge_meta_and_emit_json_identifiers() {
 }
 
 #[test]
+fn publish_emits_timestamped_human_identifiers_by_default() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "hello",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stderr.lines().next().unwrap();
+    assert!(first_line.starts_with("["));
+    assert!(first_line.contains("] published message_id="));
+    assert!(first_line.contains("conversation_id="));
+    assert!(first_line.contains("topic=review.request"));
+}
+
+#[test]
 fn run_once_handles_one_message_and_exits() {
     let temp = tempfile::tempdir().unwrap();
     let database = temp.path().join("plugboard.db");
@@ -845,10 +871,11 @@ fn check_reports_pending_when_no_terminal_reply_exists() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&output.stdout).trim(),
-        format!("pending conversation_id={conversation_id}")
-    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.trim();
+    assert!(line.starts_with('['));
+    assert!(line.contains("] pending conversation_id="));
+    assert!(line.contains(&conversation_id));
 }
 
 #[test]
@@ -902,7 +929,7 @@ fn check_reports_success_reply_by_conversation() {
         .unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("success conversation_id="));
+    assert!(stdout.contains("] success conversation_id="));
     assert!(stdout.contains("topic=review.done"));
     assert!(stdout.contains("Looks good"));
 }
@@ -958,7 +985,7 @@ fn check_reports_failure_and_exits_nonzero() {
         .unwrap();
     assert!(!output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("failure conversation_id="));
+    assert!(stdout.contains("] failure conversation_id="));
     assert!(stdout.contains("topic=review.failed"));
     assert!(stdout.contains("Needs tests"));
 }

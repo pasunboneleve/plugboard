@@ -1,4 +1,5 @@
 pub mod check;
+pub mod human_output;
 pub mod inspect;
 pub mod message_identifiers;
 pub mod message_metadata;

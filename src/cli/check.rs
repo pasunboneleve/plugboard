@@ -1,6 +1,7 @@
 use clap::Args;
 use serde_json::json;
 
+use crate::cli::human_output::prefix_timestamp;
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
 
@@ -52,11 +53,14 @@ pub fn execute(exchange: &impl Exchange, args: CheckArgs) -> Result<()> {
             );
         } else {
             println!(
-                "{} conversation_id={} message_id={} topic={}\n{}",
-                state_name(&state),
-                args.conversation_id,
-                message.id,
-                message.topic,
+                "{}\n{}",
+                prefix_timestamp(&format!(
+                    "{} conversation_id={} message_id={} topic={}",
+                    state_name(&state),
+                    args.conversation_id,
+                    message.id,
+                    message.topic,
+                ))?,
                 message.body
             );
         }
@@ -76,7 +80,10 @@ pub fn execute(exchange: &impl Exchange, args: CheckArgs) -> Result<()> {
                 }))?
             );
         } else {
-            println!("pending conversation_id={}", args.conversation_id);
+            println!(
+                "{}",
+                prefix_timestamp(&format!("pending conversation_id={}", args.conversation_id))?
+            );
         }
         Ok(())
     }
