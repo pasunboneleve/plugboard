@@ -77,6 +77,7 @@ When I say:
 
 ask ollama: <prompt>
 ask ollama with <model>: <prompt>
+check ollama
 
 You must execute this flow exactly:
 
@@ -116,6 +117,26 @@ asynchronous model:
    ./target/debug/plugboard read --topic ollama.done
 
 `read` is normal consumption. `inspect` is for debugging.
+
+### Check ollama
+
+When I say:
+
+check ollama
+
+Run:
+
+./scripts/check-ollama
+
+Return the output directly.
+
+This is the friendly Ollama-specific inbox view. It sits on top of:
+
+./target/debug/plugboard read --topic ollama.done
+./target/debug/plugboard read --topic ollama.failed
+
+It shows the 10 most recent replies by default. An optional numeric
+argument overrides that count.
 
 ### Strict rules
 

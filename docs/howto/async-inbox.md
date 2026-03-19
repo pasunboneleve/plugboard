@@ -57,6 +57,16 @@ Check the reply topic:
 ./target/debug/plugboard read --topic ollama.done
 ```
 
+For the common Ollama flow, you can use the higher-level helper instead:
+
+```bash
+./scripts/check-ollama
+```
+
+That shows recent replies from `ollama.done` and `ollama.failed`
+together. It is meant for normal consumption, not debugging. By default
+it shows the 10 most recent replies; pass a number to change that.
+
 If you want to narrow the view to one correlated exchange, read by
 conversation id instead:
 
@@ -74,3 +84,8 @@ enough.
 `read` is the normal way to consume replies later.
 
 `inspect` is for debugging and forensics.
+
+For the Ollama demo path:
+
+* `ask ollama` maps to sending work
+* `check ollama` maps to checking recent replies later

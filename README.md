@@ -44,6 +44,12 @@ Client:
   --body "1+3"
 ```
 
+Later, check for replies with:
+
+```bash
+./scripts/check-ollama
+```
+
 `plugboard request` only publishes a message and waits for a reply; it
 does not execute the backend itself.
 
@@ -177,6 +183,11 @@ focused.
 Use `plugboard request` or `plugboard publish` to enqueue work. Use
 `plugboard read` to come back and see what happened. Use
 `plugboard inspect` only when the normal story is not enough.
+
+For the common Ollama demo path, `./scripts/check-ollama` is a thin,
+friendly wrapper over `read` that shows recent replies from
+`ollama.done` and `ollama.failed` together. By default it shows the 10
+most recent replies and is safe to run repeatedly.
 
 Troubleshooting
 ---------------
