@@ -146,6 +146,10 @@ still expect the user to sit in the same shell waiting for completion.
 Plugboard's durable exchange and later inspection are part of the
 product value.
 
+Foreground parallel tools are still useful. They are just solving a
+different problem: do more work at once while the user waits. Plugboard
+is for leaving work in a durable local exchange and coming back later.
+
 Read vs Inspect
 ---------------
 

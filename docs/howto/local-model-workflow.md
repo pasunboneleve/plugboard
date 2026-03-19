@@ -2,6 +2,9 @@
 
 This is the shortest practical local-model demo for Plugboard.
 
+Keep the task bounded. Small local models are best for short
+transformations, summaries, or classifications that are easy to judge.
+
 Assumptions:
 
 * `ollama serve` is already running
@@ -12,7 +15,7 @@ Assumptions:
 ## Commands
 
 ```bash
-plugboard publish local.review.request "Summarize this code review in one sentence."
+plugboard publish local.review.request "Rewrite this release note in one calmer sentence."
 
 timeout 30 plugboard run \
   --topic local.review.request \
@@ -30,6 +33,11 @@ plugboard read --topic local.review.done
 * a long-running worker can listen on that topic
 * the worker can invoke a real local model adapter
 * the reply is published back into Plugboard on a follow-up topic
+
+What it does not prove:
+
+* that a tiny local model is a strong general-purpose assistant
+* that open-ended prompts will produce useful results
 
 For installation and setup from scratch, see
 [Install a Local Model Backend](install-local-model-backend.md).

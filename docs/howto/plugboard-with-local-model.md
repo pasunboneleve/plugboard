@@ -8,8 +8,16 @@ Current path:
 * default model: `gemma3:1b`
 * Plugboard adapter: `ollama-plugin`
 
-Use this when you want a real model-backed request/reply loop without
+Use this when you want a real local model-backed workflow without
 waiting on a hosted agent CLI cold start.
+
+Treat small local models as useful bounded transforms, not as general
+stand-ins for larger hosted systems. Good uses here include:
+
+* short rewrites
+* summaries
+* classification or labeling
+* bounded critique or transformation tasks
 
 ## Before you begin
 
@@ -32,7 +40,7 @@ export PATH="$PWD/target/debug:$PATH"
 ## Publish a request
 
 ```bash
-plugboard publish local.review.request "Explain Rust ownership in one short paragraph."
+plugboard publish local.review.request "Summarize this code review in one short paragraph."
 ```
 
 ## Run the worker
@@ -66,7 +74,8 @@ Expected shape:
 ```
 
 The exact text depends on your local model, but the workflow should stay
-the same.
+the same. Keep prompts narrow enough that a small local model is likely
+to produce something useful.
 
 ## Model selection
 
@@ -96,7 +105,7 @@ Default request:
 plugboard request local.review.request \
   --success-topic local.review.done \
   --failure-topic local.review.failed \
-  --body "Explain Rust ownership in one short paragraph."
+  --body "Rewrite this error message in calmer language."
 ```
 
 Request with metadata override:
@@ -107,7 +116,7 @@ plugboard request local.review.request \
   --failure-topic local.review.failed \
   --meta model=llama3.2:3b \
   --meta temperature=0.7 \
-  --body "Explain the theory of relativity in one paragraph."
+  --body "Classify this paragraph as bug report, feature request, or question."
 ```
 
 How it works:
