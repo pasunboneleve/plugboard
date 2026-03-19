@@ -113,7 +113,8 @@ workflow to optimize your mental model around.
 On publish, `plugboard request` also emits the request `message_id` and
 `conversation_id` on `stderr` in a stable format. Agents should capture
 those identifiers and later use `conversation_id` to check the exact
-request/reply thread.
+request/reply thread. When parse reliability matters, prefer
+`plugboard request --json`.
 
 Worker lifecycle
 ----------------
@@ -204,9 +205,14 @@ For agent use, the preferred async tracking path is:
    ./target/debug/plugboard read --conversation-id <conversation-id>
    ```
 
+`conversation_id` is the primary retrieval handle. Topics are for
+routing; the conversation is the natural unit of meaning for one
+request/reply exchange.
+
 If those identifiers are unavailable, fall back to matching the request
-body text, but that is less reliable than using the IDs Plugboard
-already returns.
+body text, preferring the latest plausible request, but that is a
+heuristic and less reliable than using the IDs Plugboard already
+returns.
 
 Troubleshooting
 ---------------

@@ -98,6 +98,7 @@ You must execute this flow exactly:
    - If a model is specified, include:
      --meta model=<model>
    - Otherwise omit it.
+   - Prefer `--json` when tooling reliability matters.
 
 3. Say: "Request published."
 
@@ -111,12 +112,18 @@ already returns at publish time:
 - `message_id`
 - `conversation_id`
 
+Treat `conversation_id` as the primary handle for later async lookup.
+Use `message_id` as supporting detail.
+
 Later checks should prefer:
 
 ./target/debug/plugboard read --conversation-id <conversation-id>
 
+This is the preferred path over request-body matching.
+
 Only fall back to matching request body text if those identifiers are
-not available.
+not available. When doing that, prefer the latest plausible request and
+say explicitly that the result is heuristic.
 
 ### Preferred Plugboard pattern
 
@@ -130,6 +137,13 @@ asynchronous model:
    ./target/debug/plugboard read --topic ollama.done
 
 `read` is normal consumption. `inspect` is for debugging.
+
+For agents and tools, the default async pattern is:
+
+1. send request
+2. capture `conversation_id`
+3. later read by `conversation_id`
+4. determine whether a terminal success or failure reply exists
 
 ### Check ollama
 
@@ -150,6 +164,10 @@ This is the friendly Ollama-specific inbox view. It sits on top of:
 
 It shows the 10 most recent replies by default. An optional numeric
 argument overrides that count.
+
+This helper is friendly, but it is not the primary async tracking key.
+For reliable agent follow-up, prefer stored `conversation_id` values and
+`read --conversation-id`.
 
 ### Strict rules
 

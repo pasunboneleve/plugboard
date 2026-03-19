@@ -70,6 +70,14 @@ which emits:
 
 Capture `conversation_id`. That is the primary async tracking key.
 
+For agents and tools, prefer the JSON form when parse reliability
+matters. The intended pattern is:
+
+1. send request
+2. capture `conversation_id`
+3. store it in agent working memory
+4. later read by that `conversation_id`
+
 ## Do something else
 
 At this point, leave the worker alone and continue with other work.
@@ -102,6 +110,9 @@ conversation id instead:
 That is the preferred way for agents and tools to check a specific
 request later.
 
+A terminal reply is any message in that conversation whose topic is the
+configured success or failure topic.
+
 Use `inspect` only when the normal topic or conversation view is not
 enough.
 
@@ -119,5 +130,35 @@ For the Ollama demo path:
 * `check ollama` maps to checking recent replies later
 
 If IDs are unavailable, the fallback is to match the original request
-body text, but that is less reliable than using `message_id` or
+body text, preferring the latest plausible request, but that is
+heuristic and less reliable than using `message_id` or
 `conversation_id`.
+
+## Agent-oriented example
+
+1. Send the request:
+
+   ```bash
+   ./target/debug/plugboard request \
+     ollama.request \
+     --success-topic ollama.done \
+     --failure-topic ollama.failed \
+     --json \
+     --body "Rewrite this status update in calmer language."
+   ```
+
+2. Capture the publish event from `stderr` and store:
+
+   * `message_id`
+   * `conversation_id`
+
+3. Later, check the exact exchange:
+
+   ```bash
+   ./target/debug/plugboard read --conversation-id <conversation-id>
+   ```
+
+4. Report one of:
+
+   * `Yes, it replied ...` if a terminal success/failure message exists
+   * `No reply yet.` if no terminal reply exists in that conversation
