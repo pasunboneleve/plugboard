@@ -45,6 +45,31 @@ conversation while still thinking in terms of queued work:
 If you do not want to block, prefer `publish` and come back later with
 `read`.
 
+When `request` publishes, it also emits stable identifiers on `stderr`:
+
+```text
+published message_id=<message-id> conversation_id=<conversation-id> topic=ollama.request
+```
+
+Or, for agent use:
+
+```bash
+./target/debug/plugboard request \
+  ollama.request \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json \
+  --body "Summarize Rust ownership in one short paragraph."
+```
+
+which emits:
+
+```json
+{"event":"published","message_id":"...","conversation_id":"...","topic":"ollama.request"}
+```
+
+Capture `conversation_id`. That is the primary async tracking key.
+
 ## Do something else
 
 At this point, leave the worker alone and continue with other work.
@@ -74,6 +99,9 @@ conversation id instead:
 ./target/debug/plugboard read --conversation-id <conversation-id>
 ```
 
+That is the preferred way for agents and tools to check a specific
+request later.
+
 Use `inspect` only when the normal topic or conversation view is not
 enough.
 
@@ -89,3 +117,7 @@ For the Ollama demo path:
 
 * `ask ollama` maps to sending work
 * `check ollama` maps to checking recent replies later
+
+If IDs are unavailable, the fallback is to match the original request
+body text, but that is less reliable than using `message_id` or
+`conversation_id`.

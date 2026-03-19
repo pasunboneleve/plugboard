@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use clap::Args;
 use log::debug;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::domain::{Message, NewMessage};
 use crate::error::{PlugboardError, Result};
@@ -15,7 +15,7 @@ pub const DEFAULT_REPLY_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 #[derive(Debug, Args)]
 #[command(
     about = "Publish a request and wait for one correlated reply",
-    long_about = "Publish a plain-text request to a topic, then wait for the first correlated follow-up message in the same conversation on either the configured success or failure topic.\n\nThis is a thin request/reply helper at the edge. It uses the normal Plugboard message log, conversation_id propagation, and advisory wakeups. It does not add a new request entity or subscription model.\n\nNotifier wakeups are advisory only. Correctness currently relies on bounded notifier waits and, when no notifier is available, bounded periodic SQLite re-checks. Both default to 250 ms, so worst-case reply detection latency under notifier failure is about 250 ms plus normal process and SQLite overhead.\n\nEnable targeted wakeup-path logs with RUST_LOG=debug."
+    long_about = "Publish a plain-text request to a topic, then wait for the first correlated follow-up message in the same conversation on either the configured success or failure topic.\n\nThis is a thin request/reply helper at the edge. It uses the normal Plugboard message log, conversation_id propagation, and advisory wakeups. It does not add a new request entity or subscription model.\n\nOn publish, the command emits the request message_id and conversation_id to stderr in a stable format so agents can capture them and later check replies by conversation.\n\nNotifier wakeups are advisory only. Correctness currently relies on bounded notifier waits and, when no notifier is available, bounded periodic SQLite re-checks. Both default to 250 ms, so worst-case reply detection latency under notifier failure is about 250 ms plus normal process and SQLite overhead.\n\nEnable targeted wakeup-path logs with RUST_LOG=debug."
 )]
 pub struct RequestArgs {
     #[arg(help = "Topic name to publish the request to")]
@@ -48,6 +48,11 @@ pub struct RequestArgs {
         help = "Periodic fallback re-check interval in milliseconds when no notifier is available while waiting for a reply; default 250 ms"
     )]
     pub recheck_ms: u64,
+    #[arg(
+        long,
+        help = "Emit publish-time request identifiers as JSON on stderr instead of key=value text"
+    )]
+    pub json: bool,
 }
 
 pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
@@ -70,6 +75,7 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
         "published request id={} conversation_id={} topic={}",
         request.id, request.conversation_id, request.topic
     );
+    emit_request_identifiers(&request, args.json)?;
 
     let reply = await_reply(
         exchange,
@@ -85,6 +91,26 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
     } else {
         Err(PlugboardError::SilentExit { code: 1 })
     }
+}
+
+fn emit_request_identifiers(request: &Message, json_output: bool) -> Result<()> {
+    if json_output {
+        eprintln!(
+            "{}",
+            serde_json::to_string(&json!({
+                "event": "published",
+                "message_id": request.id,
+                "conversation_id": request.conversation_id,
+                "topic": request.topic,
+            }))?
+        );
+    } else {
+        eprintln!(
+            "published message_id={} conversation_id={} topic={}",
+            request.id, request.conversation_id, request.topic
+        );
+    }
+    Ok(())
 }
 
 fn read_body_from_stdin() -> Result<String> {
@@ -218,7 +244,9 @@ fn await_reply(
 
 #[cfg(test)]
 mod tests {
-    use super::{await_reply, merge_meta_into_metadata_json, parse_meta_args};
+    use super::{
+        await_reply, emit_request_identifiers, merge_meta_into_metadata_json, parse_meta_args,
+    };
     use crate::domain::{Claim, Message, NewMessage};
     use crate::error::Result;
     use crate::exchange::Exchange;
@@ -420,5 +448,11 @@ mod tests {
         assert_eq!(parsed["stdout"], json!("ok"));
         assert_eq!(parsed["meta"]["model"], json!("llama3.2:3b"));
         assert_eq!(parsed["meta"]["temperature"], json!(0.7));
+    }
+
+    #[test]
+    fn emits_json_request_identifiers() {
+        let request = request_message();
+        emit_request_identifiers(&request, true).unwrap();
     }
 }

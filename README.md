@@ -110,6 +110,11 @@ same conversation, prints the reply body, and exits. Treat that as a
 convenience wrapper around the asynchronous exchange, not as the main
 workflow to optimize your mental model around.
 
+On publish, `plugboard request` also emits the request `message_id` and
+`conversation_id` on `stderr` in a stable format. Agents should capture
+those identifiers and later use `conversation_id` to check the exact
+request/reply thread.
+
 Worker lifecycle
 ----------------
 
@@ -188,6 +193,20 @@ For the common Ollama demo path, `./scripts/check-ollama` is a thin,
 friendly wrapper over `read` that shows recent replies from
 `ollama.done` and `ollama.failed` together. By default it shows the 10
 most recent replies and is safe to run repeatedly.
+
+For agent use, the preferred async tracking path is:
+
+1. send a request
+2. capture `message_id` and `conversation_id`
+3. later check:
+
+   ```bash
+   ./target/debug/plugboard read --conversation-id <conversation-id>
+   ```
+
+If those identifiers are unavailable, fall back to matching the request
+body text, but that is less reliable than using the IDs Plugboard
+already returns.
 
 Troubleshooting
 ---------------

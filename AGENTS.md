@@ -105,6 +105,19 @@ You must execute this flow exactly:
    - The output of that command is the final result.
    - Return that result exactly once.
 
+For async tracking, prefer the request identifiers that Plugboard
+already returns at publish time:
+
+- `message_id`
+- `conversation_id`
+
+Later checks should prefer:
+
+./target/debug/plugboard read --conversation-id <conversation-id>
+
+Only fall back to matching request body text if those identifiers are
+not available.
+
 ### Preferred Plugboard pattern
 
 Unless the user explicitly asks to block and wait, prefer the

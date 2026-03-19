@@ -483,6 +483,9 @@ fn request_publishes_and_waits_for_success_reply() {
     let output = request.wait_with_output().unwrap();
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "Looks good");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("published message_id="));
+    assert!(stderr.contains("conversation_id="));
 }
 
 #[test]
@@ -668,6 +671,61 @@ fn request_reads_body_from_stdin_when_flag_is_omitted() {
     let output = request.wait_with_output().unwrap();
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "stdin ok");
+}
+
+#[test]
+fn request_can_emit_publish_identifiers_as_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let request = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--json",
+            "--body",
+            "Review this code",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(250));
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "Looks good",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = request.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let first_line = stderr.lines().next().unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(first_line).unwrap();
+    assert_eq!(parsed["event"], "published");
+    assert_eq!(parsed["message_id"], message_id);
+    assert_eq!(parsed["conversation_id"], conversation_id);
+    assert_eq!(parsed["topic"], "review.request");
 }
 
 #[test]
