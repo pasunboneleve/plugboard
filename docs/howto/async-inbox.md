@@ -82,6 +82,12 @@ For a truly non-blocking send, use `publish` instead:
 
 That returns immediately. Capture `conversation_id`, then check later.
 
+For humans, do not surface the raw JSON directly. Parse it internally
+and answer in plain text, for example:
+
+* `Sent to Ollama.`
+* `Conversation ID: <conversation-id>`
+
 For agents and tools, prefer the JSON form when parse reliability
 matters. The intended pattern is:
 
@@ -198,6 +204,9 @@ heuristic and less reliable than using `message_id` or
 
    * `Yes, it replied ...` if `state` is `success` or `failure`
    * `No reply yet.` if `state` is `pending`
+
+The JSON output is for machine parsing. The user-facing answer should be
+short plain text, not the JSON wrapper.
 
 If more detail is needed after that compact check, then read the full
 conversation:

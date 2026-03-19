@@ -158,9 +158,16 @@ You must execute this flow exactly:
      [--meta model=<model>] \
      --json
 
-3. Return the publish output only.
+3. Parse the JSON internally.
    - Capture `conversation_id`
    - Do not wait for the reply
+
+4. Return to the user immediately in short plain text.
+   - Do not print the raw JSON
+   - Preferred form:
+     Sent to Ollama.
+   - Optional second line:
+     Conversation ID: <conversation-id>
 
 Later follow-up should prefer:
 
@@ -172,6 +179,9 @@ Later follow-up should prefer:
 
 This is the non-blocking path. Use it when the user wants to continue
 working and check later.
+
+JSON is for internal parsing only. User-facing output should stay plain
+text.
 
 ### Preferred Plugboard pattern
 
@@ -193,6 +203,9 @@ For agents and tools, the default async pattern is:
 3. later check by `conversation_id`
 4. determine whether a terminal success or failure reply exists
 
+When using `--json`, parse it internally and answer the human in plain
+text.
+
 ### Check ollama
 
 When I say:
@@ -203,7 +216,22 @@ Run:
 
 ./scripts/check-ollama
 
-Return the output directly.
+Return a short plain-text summary, not raw machine output.
+
+Prefer the conversation-based path when a stored `conversation_id` is
+available:
+
+./target/debug/plugboard check \
+  --conversation-id <conversation-id> \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json
+
+Parse that JSON internally and answer in plain text, for example:
+
+- `Not yet.`
+- `Yes — Albert Einstein.`
+- `It failed: <failure body>`
 
 This is the friendly Ollama-specific inbox view. It sits on top of:
 
@@ -219,6 +247,7 @@ For reliable agent follow-up, prefer stored `conversation_id` values and
 
 ### Strict rules
 
+- `send ollama` must be fire-and-return. Never wait for job completion.
 - Never run the request command a second time unless I explicitly ask.
 - Never restate, summarize, expand, or reinterpret the request result.
 - Never mix:

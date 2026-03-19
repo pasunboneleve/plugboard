@@ -75,6 +75,12 @@ Then later check:
 `ollama.request`. Keep it running in a separate terminal while sending
 requests.
 
+In the async path, structured output is for the agent or tool to parse.
+The human-facing response should stay plain text, for example:
+
+* `Sent to Ollama.`
+* `Conversation ID: <id>`
+
 For a single-message experiment, you can use the one-shot helper
 instead:
 
@@ -239,6 +245,17 @@ request/reply exchange.
 `check` is a thin helper over conversation-based reads. It tells you
 whether the conversation is still pending, has a terminal success reply,
 or has a terminal failure reply.
+
+When using `--json`, the intended pattern is:
+
+* parse JSON internally
+* return plain text to the human
+
+For example:
+
+* `Not yet.`
+* `Yes — Albert Einstein.`
+* `It failed: <failure body>`
 
 If those identifiers are unavailable, fall back to matching the request
 body text, preferring the latest plausible request, but that is a
