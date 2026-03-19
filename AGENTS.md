@@ -39,3 +39,92 @@ bd sync               # Sync with git
 - If push fails, resolve and retry until it succeeds
 
 Use 'bd' for task tracking
+
+
+## Ollama via Plugboard (interactive use)
+
+Use the local binary:
+
+./target/debug/plugboard
+
+Topics:
+- request: ollama.request
+- success: ollama.done
+- failure: ollama.failed
+
+### Worker
+
+Start the Ollama worker with:
+
+./scripts/run-ollama-worker
+
+### Ask ollama
+
+When I say:
+
+ask ollama: <prompt>
+ask ollama with <model>: <prompt>
+
+You must execute this flow exactly:
+
+1. Ensure the worker is running.
+   - If unsure, start it using:
+     ./scripts/run-ollama-worker
+   - Run it in a background terminal/session.
+   - Say "Starting Ollama worker." only if you actually start it.
+
+2. Send exactly one request by running exactly once:
+
+   ./target/debug/plugboard request ollama.request \
+     --success-topic ollama.done \
+     --failure-topic ollama.failed \
+     [--meta model=<model>] \
+     --body "<prompt>"
+
+   - If a model is specified, include:
+     --meta model=<model>
+   - Otherwise omit it.
+
+3. Say: "Request published."
+
+4. Wait for the request command to finish.
+   - The output of that command is the final result.
+   - Return that result exactly once.
+
+### Strict rules
+
+- Never run the request command a second time unless I explicitly ask.
+- Never restate, summarize, expand, or reinterpret the request result.
+- Never mix:
+  - request command output
+  - topic inspection output
+  - your own explanation
+
+- Do not run `plugboard read` while the request command is still running.
+- Topic inspection is allowed only if:
+  - the request command exits with an error, or
+  - the request command appears stuck after a reasonable wait
+
+### If the request appears stuck
+
+If the request command appears stuck after a reasonable wait:
+
+1. Do not issue another request.
+2. Inspect once with:
+
+   ./target/debug/plugboard read --topic ollama.request
+   ./target/debug/plugboard read --topic ollama.done
+   ./target/debug/plugboard read --topic ollama.failed
+
+3. Report only the observed state briefly.
+4. Do not infer more than the evidence supports.
+
+If a new reply is visible on `ollama.done` or `ollama.failed` while the original request command is still blocked, report:
+
+"Reply exists on the reply topic, but the original request command is still blocked. This suggests a request/reply waiter bug or correlation issue."
+
+### Output rules
+
+- Do not say "in flight".
+- Do not assume `plugboard` is on PATH.
+- Be concise and operational.
