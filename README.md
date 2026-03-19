@@ -59,6 +59,7 @@ processed and may appear to hang.
 - [Install a Local Model Backend](docs/howto/install-local-model-backend.md)
 - [Plugboard with a Local Model](docs/howto/plugboard-with-local-model.md)
 - [Async Inbox Workflow](docs/howto/async-inbox.md)
+- [Completion Notifications](docs/howto/completion-notifications.md)
 - [Local Model Workflow](docs/howto/local-model-workflow.md)
 - [Measure Local Latency](docs/howto/measure-latency.md)
 - [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
