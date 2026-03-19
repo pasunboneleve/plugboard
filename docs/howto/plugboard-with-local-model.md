@@ -85,6 +85,40 @@ timeout 30 plugboard run \
   -- ollama-plugin
 ```
 
+## Dogfooding with Ollama (model override)
+
+Per-request metadata can override the model without changing plugin
+stdin or restarting the worker.
+
+Default request:
+
+```bash
+plugboard request local.review.request \
+  --success-topic local.review.done \
+  --failure-topic local.review.failed \
+  --body "Explain Rust ownership in one short paragraph."
+```
+
+Request with metadata override:
+
+```bash
+plugboard request local.review.request \
+  --success-topic local.review.done \
+  --failure-topic local.review.failed \
+  --meta model=llama3.2:3b \
+  --meta temperature=0.7 \
+  --body "Explain the theory of relativity in one paragraph."
+```
+
+How it works:
+
+* request metadata is stored in `messages.metadata_json.meta`
+* the worker passes `.meta` entries to plugins as `PLUGBOARD_META_*`
+  environment variables
+* plugins opt in to using those variables
+* `ollama-plugin` prefers `PLUGBOARD_META_MODEL` over
+  `OLLAMA_PLUGIN_MODEL`
+
 ## Troubleshooting
 
 If the worker publishes to `local.review.failed`, check:

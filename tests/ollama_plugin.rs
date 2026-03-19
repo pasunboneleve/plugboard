@@ -100,6 +100,37 @@ fn ollama_plugin_posts_message_body_to_local_service() {
 }
 
 #[test]
+fn ollama_plugin_prefers_plugboard_meta_model_when_present() {
+    let (base_url, request_rx) = spawn_fake_ollama(
+        "200 OK",
+        r#"{ "response": "Local model says hello", "done": true }"#,
+    );
+    let binary = env!("CARGO_BIN_EXE_ollama-plugin");
+
+    let output = Command::new(binary)
+        .env("OLLAMA_PLUGIN_BASE_URL", &base_url)
+        .env("OLLAMA_PLUGIN_MODEL", "gemma3:1b")
+        .env("PLUGBOARD_META_MODEL", "llama3.2:3b")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(b"Summarize this patch")?;
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(output.status.success());
+    let request = request_rx.recv().unwrap();
+    assert!(request.contains(r#""model":"llama3.2:3b""#));
+}
+
+#[test]
 fn ollama_plugin_reports_json_error_message() {
     let (base_url, _request_rx) = spawn_fake_ollama(
         "500 Internal Server Error",

@@ -531,6 +531,51 @@ mod tests {
     }
 
     #[test]
+    fn publish_round_trips_metadata_json() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+
+        let message = exchange
+            .publish(NewMessage {
+                topic: "code.generate".into(),
+                body: "generate".into(),
+                parent_id: None,
+                conversation_id: None,
+                producer: Some("tester".into()),
+                metadata_json: Some(
+                    r#"{"meta":{"model":"llama3.2:3b","temperature":0.7},"stdout":"kept"}"#.into(),
+                ),
+            })
+            .unwrap();
+
+        let stored: Option<String> = exchange
+            .connection
+            .borrow()
+            .query_row(
+                "SELECT metadata_json FROM messages WHERE id = ?1",
+                params![message.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(stored, message.metadata_json);
+        assert!(
+            message
+                .metadata_json
+                .as_deref()
+                .unwrap()
+                .contains(r#""meta":{"model":"llama3.2:3b","temperature":0.7}"#)
+        );
+        assert!(
+            message
+                .metadata_json
+                .as_deref()
+                .unwrap()
+                .contains(r#""stdout":"kept""#)
+        );
+    }
+
+    #[test]
     fn claim_is_atomic_for_active_messages() {
         let exchange = SqliteExchange::open_memory().unwrap();
         exchange.init().unwrap();

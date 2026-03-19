@@ -294,10 +294,14 @@ fn ollama_plugin_runs_through_worker_host() {
     );
 
     let root = exchange
-        .publish(NewMessage::new(
-            "local.review.request",
-            "Explain the timeout behavior in one line",
-        ))
+        .publish(NewMessage {
+            topic: "local.review.request".into(),
+            body: "Explain the timeout behavior in one line".into(),
+            parent_id: None,
+            conversation_id: None,
+            producer: None,
+            metadata_json: Some(r#"{"meta":{"model":"llama3.2:3b"}}"#.into()),
+        })
         .unwrap();
 
     let plugin = CommandPlugin::new(vec![
@@ -330,7 +334,7 @@ fn ollama_plugin_runs_through_worker_host() {
     assert_eq!(conversation[1].parent_id.as_deref(), Some(root.id.as_str()));
 
     let request = request_rx.recv().unwrap();
-    assert!(request.contains(r#""model":"gemma3:1b""#));
+    assert!(request.contains(r#""model":"llama3.2:3b""#));
     assert!(request.contains(r#""prompt":"Explain the timeout behavior in one line""#));
     assert!(request.contains(r#""stream":false"#));
 

@@ -111,6 +111,7 @@ fn publish_and_read_help_are_concrete() {
     assert!(request_stdout.contains("same conversation"));
     assert!(request_stdout.contains("bounded notifier waits and, when no notifier is available"));
     assert!(request_stdout.contains("RUST_LOG=debug"));
+    assert!(request_stdout.contains("--meta"));
     assert!(request_stdout.contains("--wait-timeout-ms"));
     assert!(request_stdout.contains("--recheck-ms"));
 
@@ -124,6 +125,34 @@ fn publish_and_read_help_are_concrete() {
     assert!(inspect_stdout.contains("prefer `plugboard read --topic ...`"));
     assert!(inspect_stdout.contains("large amount of historical data"));
     assert!(inspect_stdout.contains("temporary database"));
+}
+
+#[test]
+fn request_rejects_invalid_meta_argument() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "request",
+            "review.request",
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--meta",
+            "missing_equals",
+            "--body",
+            "hello",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("expected KEY=VALUE"));
 }
 
 #[test]

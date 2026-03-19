@@ -75,8 +75,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let base_url =
         env::var("OLLAMA_PLUGIN_BASE_URL").unwrap_or_else(|_| DEFAULT_OLLAMA_BASE_URL.to_string());
-    let model =
-        env::var("OLLAMA_PLUGIN_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_string());
+    let model = select_model();
     let endpoint = build_endpoint(&base_url);
     let request = build_request(&model, &prompt);
 
@@ -101,12 +100,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn select_model() -> String {
+    env::var("PLUGBOARD_META_MODEL")
+        .or_else(|_| env::var("OLLAMA_PLUGIN_MODEL"))
+        .unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DEFAULT_OLLAMA_BASE_URL, DEFAULT_OLLAMA_MODEL, GenerateResponse, build_endpoint,
         build_request, parse_response, render_http_error,
     };
+    use std::env;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn appends_generate_path_to_base_url() {
@@ -170,5 +182,33 @@ mod tests {
             render_http_error("service unavailable"),
             "service unavailable"
         );
+    }
+
+    #[test]
+    fn prefers_plugboard_meta_model_over_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            env::set_var("PLUGBOARD_META_MODEL", "llama3.2:3b");
+            env::set_var("OLLAMA_PLUGIN_MODEL", "gemma3:1b");
+        }
+        assert_eq!(super::select_model(), "llama3.2:3b");
+        unsafe {
+            env::remove_var("PLUGBOARD_META_MODEL");
+            env::remove_var("OLLAMA_PLUGIN_MODEL");
+        }
+    }
+
+    #[test]
+    fn falls_back_from_plugin_env_to_default_model() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            env::remove_var("PLUGBOARD_META_MODEL");
+            env::set_var("OLLAMA_PLUGIN_MODEL", "qwen2:1.5b");
+        }
+        assert_eq!(super::select_model(), "qwen2:1.5b");
+        unsafe {
+            env::remove_var("OLLAMA_PLUGIN_MODEL");
+        }
+        assert_eq!(super::select_model(), DEFAULT_OLLAMA_MODEL);
     }
 }
