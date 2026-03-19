@@ -10,6 +10,16 @@ work, and append follow-up messages. Plugboard does not define agents,
 workflow graphs, or identity-based delivery. It routes interest by
 topic and leaves behaviour to processes outside the core.
 
+The main operating model is asynchronous:
+
+1. publish or request work now
+2. continue doing other work
+3. later read replies from the relevant topic or conversation
+
+That durable, inspectable exchange is the product. Blocking
+request/reply is available for quick experiments, but it is not the
+main thing Plugboard is for.
+
 Getting Started
 ---------------
 
@@ -27,7 +37,7 @@ messages using simple stdin/stdout contracts.
 
 The repository includes a deterministic demo plugin, a real Gemini
 adapter, and a local-model adapter built around Ollama for low-latency
-local request/reply workflows.
+bounded text transforms on a developer machine.
 
 Operationally, blocking worker and request/reply paths use advisory
 local wakeups plus bounded SQLite re-checks. The default notifier wait
@@ -43,27 +53,62 @@ already-running agents or warm backends, and direct API plugins for
 hosted services. Those are plugin-layer choices rather than protocol
 changes in the core exchange.
 
-For the common passive request/reply case, the CLI also includes a thin
-edge helper:
+Plugboard also includes a thin request/reply helper for quick manual
+experiments:
 
 ```text
 plugboard request --topic ... --success-topic ... --failure-topic ... --body ...
 ```
 
 It publishes a request, waits for the first correlated follow-up in the
-same conversation, prints the reply body, and exits.
+same conversation, prints the reply body, and exits. Treat that as a
+convenience wrapper around the asynchronous exchange, not as the main
+workflow to optimize your mental model around.
+
+Async-First Usage
+-----------------
+
+The most useful Plugboard workflow is:
+
+1. enqueue work on a topic
+2. leave the worker alone to process it
+3. come back later and read replies
+
+For humans, that means you can send work, move on, and check your inbox
+later.
+
+For agent/tool use, that means the safe default is also non-blocking:
+enqueue now, keep working, and only wait in the foreground when the user
+explicitly asks for it.
+
+`plugboard request` exists because it is handy during dogfooding and
+small demos. But the more characteristic Plugboard flow is:
+
+```text
+publish/request -> do other work -> read replies later
+```
+
+That is different from foreground-parallel tools that fan out work but
+still expect the user to sit in the same shell waiting for completion.
+Plugboard's durable exchange and later inspection are part of the
+product value.
 
 Read vs Inspect
 ---------------
 
-Use `plugboard read` for normal usage. It is the routine way to read
-messages from a topic or conversation.
+Use `plugboard read` for normal usage. It is the routine way to consume
+messages from a topic or conversation, especially when you are checking
+for replies later.
 
 Use `plugboard inspect` when you need forensic detail about raw message
 history or claim state. It can print a lot of historical output on a
 non-empty database, so it is best treated as a debugging command. For
 experiments, prefer using a temporary database so the output stays
 focused.
+
+Use `plugboard request` or `plugboard publish` to enqueue work. Use
+`plugboard read` to come back and see what happened. Use
+`plugboard inspect` only when the normal story is not enough.
 
 Three-layer model
 -----------------
@@ -92,7 +137,8 @@ Those plugins can take several practical forms:
 
 * **local model plugins**
   Good for fast local demos and development when hosted agent cold
-  start is too slow.
+  start is too slow. Small local models are best for bounded,
+  low-risk text transforms rather than ambitious open-ended tasks.
 
 * **already-running agent or session-backed plugins**
   Useful when the plugin needs to talk to a warm backend. Any
@@ -243,6 +289,8 @@ Example plugin types:
 
 ## End-to-end example
 
+The most representative flow is asynchronous:
+
 1. Publish a request:
 
 ```text
@@ -251,7 +299,7 @@ body:
 Review this patch for correctness and missing tests.
 ```
 
-2. Start a worker host for that topic:
+2. Ensure a worker host is running for that topic:
 
 ```text
 plugboard run \
@@ -261,7 +309,13 @@ plugboard run \
   -- some-review-plugin
 ```
 
-3. The worker claims the message, runs the plugin, and publishes:
+3. Continue doing other work, then later read the reply topic:
+
+```text
+plugboard read --topic review.done
+```
+
+4. The worker claims the message, runs the plugin, and publishes:
 
 ```text
 topic: review.done
@@ -270,7 +324,8 @@ Found one regression risk in timeout handling.
 ```
 
 The follow-up keeps the conversation linked through `parent_id` and
-`conversation_id`.
+`conversation_id`. That durable history is why Plugboard is useful even
+when nobody is sitting in the shell waiting.
 
 ## CLI sketch
 

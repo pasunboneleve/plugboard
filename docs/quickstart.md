@@ -3,6 +3,10 @@
 This is the shortest path to a working Plugboard setup with a passive
 worker.
 
+The example below is intentionally compact. In day-to-day use, the more
+characteristic Plugboard workflow is asynchronous: enqueue work, do
+something else, and later read the reply topic.
+
 Build the binary first if it is not already available on your `PATH`:
 
 ```bash
@@ -32,6 +36,10 @@ What happens:
 * The message body is passed to the command on `stdin`.
 * The command writes its result to `stdout`.
 * Plugboard publishes that output to `review.done`.
+
+For quick experiments you can run the worker inline as shown above. For
+normal usage, leave the worker running and treat `plugboard read` as the
+standard way to check replies later.
 
 ## Worker Contract
 

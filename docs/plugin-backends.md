@@ -9,6 +9,15 @@ That is the key design boundary:
 * Plugboard does not manage agent identity, presence, routing, or sessions
 * different backend styles are plugin alternatives, not protocol changes
 
+The default operator story should also stay simple:
+
+1. enqueue work on a topic
+2. continue doing other work
+3. later read replies from the exchange
+
+Blocking request/reply exists as a convenience helper, not as the main
+mental model for using Plugboard.
+
 ## Why this matters
 
 Different backends make Plugboard feel very different in practice.
@@ -29,7 +38,20 @@ request -> topic -> worker host -> plugin/backend -> follow-up topic -> request 
 ```
 
 That helper still uses the same message log, conversation correlation,
-and advisory wakeup rules.
+and advisory wakeup rules. It is useful for quick experiments, but the
+durable async exchange remains the primary model.
+
+## Async-first usage
+
+In normal use, `read` is the consumption command:
+
+* `publish` or `request` enqueue work
+* `read` checks the inbox later
+* `inspect` is for forensics and debugging
+
+That makes Plugboard different from tools that parallelize foreground
+work while still making the user wait in the same shell. Plugboard is
+meant to let the user move on and come back later.
 
 ## 1. Simple stateless transforms
 
@@ -66,6 +88,7 @@ Best fit:
 * responsive local demos
 * developer setup where low latency matters
 * proving Plugboard's usefulness without network dependencies
+* bounded, low-risk text transforms that small local models can handle
 
 From Plugboard's point of view, this is still just a plugin. The core
 does not care whether the backend is local or remote.
@@ -119,7 +142,9 @@ useful on a developer machine.
 
 The current recommended local path in this repository is an Ollama
 adapter that talks to a local `ollama serve` instance and a small model
-such as `gemma3:1b`.
+such as `gemma3:1b`. Treat that path as a good fit for bounded
+rewrites, summaries, classifications, and similar narrow transforms,
+not as a strong showcase for broad open-ended reasoning.
 
 Use a session-backed plugin when warm state matters but you still want
 Plugboard to stay minimal.
