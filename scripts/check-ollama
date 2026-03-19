@@ -52,13 +52,15 @@ def main() -> int:
     rows: List[Tuple[str, str, str]] = []
     for topic in TOPICS:
         rows.extend(read_topic(topic))
+        rows.sort(key=lambda row: row[0], reverse=True)
+        if len(rows) > count:
+            rows = rows[:count]
 
     if not rows:
         print("No Ollama replies yet.")
         return 0
 
-    rows.sort(key=lambda row: row[0])
-    recent = rows[-count:]
+    recent = sorted(rows, key=lambda row: row[0])
 
     for index, (created_at, topic, body) in enumerate(recent, start=1):
         label = "done" if topic == "ollama.done" else "failed"
