@@ -2,7 +2,8 @@
 import re
 import subprocess
 import sys
-from typing import List, Tuple
+import heapq
+from typing import List, Optional, Tuple
 
 DEFAULT_COUNT = 10
 TOPICS = ("ollama.done", "ollama.failed")
@@ -18,43 +19,58 @@ def parse_args() -> int:
     raise SystemExit(2)
 
 
-def read_topic(topic: str) -> List[Tuple[str, str, str]]:
-    output = subprocess.run(
+def push_recent(
+    heap: List[Tuple[str, str, str]],
+    entry: Tuple[str, str, str],
+    count: int,
+) -> None:
+    if len(heap) < count:
+        heapq.heappush(heap, entry)
+        return
+    if entry[0] > heap[0][0]:
+        heapq.heapreplace(heap, entry)
+
+
+def read_topic_into_heap(
+    topic: str,
+    heap: List[Tuple[str, str, str]],
+    count: int,
+) -> None:
+    with subprocess.Popen(
         [*READ_PREFIX, topic],
-        check=True,
         text=True,
-        capture_output=True,
-    )
+        stdout=subprocess.PIPE,
+    ) as process:
+        if process.stdout is None:
+            raise RuntimeError("failed to read plugboard output")
 
-    entries: List[Tuple[str, str, str]] = []
-    current = None
-    for line in output.stdout.splitlines():
-        match = ROW_START.match(line)
-        if match:
-            if current is not None:
-                entries.append(current)
-            current = (match.group(1), match.group(2), match.group(3))
-            continue
+        current: Optional[Tuple[str, str, str]] = None
+        for raw_line in process.stdout:
+            line = raw_line.rstrip("\n")
+            match = ROW_START.match(line)
+            if match:
+                if current is not None:
+                    push_recent(heap, current, count)
+                current = (match.group(1), match.group(2), match.group(3))
+                continue
 
-        if current is None:
-            continue
+            if current is None:
+                continue
 
-        current = (current[0], current[1], f"{current[2]}\n{line}")
+            current = (current[0], current[1], f"{current[2]}\n{line}")
 
-    if current is not None:
-        entries.append(current)
+        if current is not None:
+            push_recent(heap, current, count)
 
-    return entries
-
+        return_code = process.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(return_code, [*READ_PREFIX, topic])
 
 def main() -> int:
     count = parse_args()
     rows: List[Tuple[str, str, str]] = []
     for topic in TOPICS:
-        rows.extend(read_topic(topic))
-        rows.sort(key=lambda row: row[0], reverse=True)
-        if len(rows) > count:
-            rows = rows[:count]
+        read_topic_into_heap(topic, rows, count)
 
     if not rows:
         print("No Ollama replies yet.")
