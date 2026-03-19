@@ -58,6 +58,15 @@ Start the Ollama worker with:
 
 ./scripts/run-ollama-worker
 
+This starts a long-lived worker. For normal Plugboard usage, prefer:
+
+1. enqueue work now
+2. keep doing other work
+3. read replies later
+
+Only block in the foreground when the user explicitly asks to wait for
+the reply.
+
 ### Ask ollama
 
 When I say:
@@ -90,6 +99,19 @@ You must execute this flow exactly:
 4. Wait for the request command to finish.
    - The output of that command is the final result.
    - Return that result exactly once.
+
+### Preferred Plugboard pattern
+
+Unless the user explicitly asks to block and wait, prefer the
+asynchronous model:
+
+1. publish or request work
+2. leave the worker running
+3. later use:
+
+   ./target/debug/plugboard read --topic ollama.done
+
+`read` is normal consumption. `inspect` is for debugging.
 
 ### Strict rules
 
