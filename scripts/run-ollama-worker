@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-./target/debug/plugboard run \
+exec ./target/debug/plugboard run \
   --topic ollama.request \
   --success-topic ollama.done \
   --failure-topic ollama.failed \
