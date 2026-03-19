@@ -77,9 +77,6 @@ When I say:
 
 ask ollama: <prompt>
 ask ollama with <model>: <prompt>
-send ollama: <prompt>
-send ollama with <model>: <prompt>
-check ollama
 
 You must execute this flow exactly:
 
@@ -183,6 +180,10 @@ working and check later.
 JSON is for internal parsing only. User-facing output should stay plain
 text.
 
+After `send ollama`, remember the returned `conversation_id` as the
+current async Ollama handle. That stored `conversation_id` is what
+prompt-level `check ollama` refers to.
+
 ### Preferred Plugboard pattern
 
 Unless the user explicitly asks to block and wait, prefer the
@@ -212,14 +213,10 @@ When I say:
 
 check ollama
 
+Use the stored `conversation_id` from the most recent async
+`send ollama` request.
+
 Run:
-
-./scripts/check-ollama
-
-Return a short plain-text summary, not raw machine output.
-
-Prefer the conversation-based path when a stored `conversation_id` is
-available:
 
 ./target/debug/plugboard check \
   --conversation-id <conversation-id> \
@@ -227,23 +224,30 @@ available:
   --failure-topic ollama.failed \
   --json
 
-Parse that JSON internally and answer in plain text, for example:
+Parse that JSON internally and answer in plain text:
 
 - `Not yet.`
 - `Yes — Albert Einstein.`
 - `It failed: <failure body>`
 
-This is the friendly Ollama-specific inbox view. It sits on top of:
+Do not show the raw JSON to the user.
 
-./target/debug/plugboard read --topic ollama.done
-./target/debug/plugboard read --topic ollama.failed
+If there is no remembered async Ollama conversation, say so plainly:
 
-It shows the 10 most recent replies by default. An optional numeric
-argument overrides that count.
+- `No remembered async Ollama conversation.`
 
-This helper is friendly, but it is not the primary async tracking key.
-For reliable agent follow-up, prefer stored `conversation_id` values and
-`plugboard check --conversation-id ...`.
+Do not fall back to recent reply listing unless the user explicitly asks
+to see recent Ollama replies or the Ollama inbox.
+
+`check ollama` is not the same thing as the recent inbox helper.
+
+The separate recent-inbox helper is:
+
+./scripts/check-ollama
+
+That helper shows recent replies from `ollama.done` and
+`ollama.failed`. It is for inbox-style browsing, not for checking one
+specific async task.
 
 ### Strict rules
 

@@ -44,12 +44,6 @@ Client:
   --body "1+3"
 ```
 
-Later, check for replies with:
-
-```bash
-./scripts/check-ollama
-```
-
 `plugboard request` only publishes a message and waits for a reply; it
 does not execute the backend itself.
 
@@ -70,6 +64,9 @@ Then later check:
   --failure-topic ollama.failed \
   --json
 ```
+
+For prompt-level async usage, that conversation-based `check` path is
+the intended meaning of “check Ollama.”
 
 `./scripts/run-ollama-worker` starts a long-lived worker for
 `ollama.request`. Keep it running in a separate terminal while sending
@@ -219,10 +216,24 @@ Use `plugboard request` or `plugboard publish` to enqueue work. Use
 `plugboard read` to come back and see what happened. Use
 `plugboard inspect` only when the normal story is not enough.
 
-For the common Ollama demo path, `./scripts/check-ollama` is a thin,
-friendly wrapper over `read` that shows recent replies from
-`ollama.done` and `ollama.failed` together. By default it shows the 10
-most recent replies and is safe to run repeatedly.
+For the common Ollama demo path, `./scripts/check-ollama` is a separate
+inbox helper that shows recent replies from `ollama.done` and
+`ollama.failed` together. By default it shows the 10 most recent
+replies and is safe to run repeatedly.
+
+That is different from prompt-level `check ollama`, which should use
+the stored `conversation_id` from the most recent async send and run:
+
+```bash
+./target/debug/plugboard check \
+  --conversation-id <conversation-id> \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json
+```
+
+If no stored async conversation is available, say so plainly rather
+than falling back to recent replies by default.
 
 For agent use, the preferred async tracking path is:
 

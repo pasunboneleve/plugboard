@@ -108,16 +108,6 @@ Check the reply topic:
 ./target/debug/plugboard read --topic ollama.done
 ```
 
-For the common Ollama flow, you can use the higher-level helper instead:
-
-```bash
-./scripts/check-ollama
-```
-
-That shows recent replies from `ollama.done` and `ollama.failed`
-together. It is meant for normal consumption, not debugging. By default
-it shows the 10 most recent replies; pass a number to change that.
-
 If you want to narrow the view to one correlated exchange, read by
 conversation id instead:
 
@@ -141,6 +131,30 @@ For a compact terminal-state check, use:
 A terminal reply is any message in that conversation whose topic is the
 configured success or failure topic.
 
+For prompt-level async agent use, this conversation-based `check` path
+is the default meaning of “check Ollama”:
+
+1. send work
+2. capture `conversation_id`
+3. later run `plugboard check --conversation-id ...`
+4. report:
+   - `Not yet.`
+   - `Yes — <reply body>.`
+   - `It failed: <failure body>`
+
+Only use recent-reply browsing if the user explicitly asks for the
+Ollama inbox or recent replies.
+
+The separate recent-inbox helper is:
+
+```bash
+./scripts/check-ollama
+```
+
+That helper shows recent replies from `ollama.done` and `ollama.failed`
+together. It is for inbox-style browsing, not for checking one specific
+stored async task.
+
 Use `inspect` only when the normal topic or conversation view is not
 enough.
 
@@ -154,8 +168,12 @@ enough.
 
 For the Ollama demo path:
 
-* `ask ollama` maps to sending work
-* `check ollama` maps to checking recent replies later
+* `ask ollama` maps to the blocking request path
+* `send ollama` maps to the non-blocking publish path
+* `check ollama` maps to checking the stored `conversation_id` from the
+  most recent async send
+* `./scripts/check-ollama` is a separate inbox helper for browsing
+  recent replies
 
 If IDs are unavailable, the fallback is to match the original request
 body text, preferring the latest plausible request, but that is
@@ -214,3 +232,7 @@ conversation:
 ```bash
 ./target/debug/plugboard read --conversation-id <conversation-id>
 ```
+
+If there is no remembered `conversation_id`, say so plainly instead of
+guessing from recent replies. Only fall back to body-text matching if
+the identifiers are unavailable and you must still attempt recovery.
