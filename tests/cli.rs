@@ -215,6 +215,29 @@ fn request_rejects_invalid_meta_argument() {
 }
 
 #[test]
+fn publish_rejects_invalid_meta_argument() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "hello",
+            "--meta",
+            "missing_equals",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("expected KEY=VALUE"));
+}
+
+#[test]
 fn publish_can_merge_meta_and_emit_json_identifiers() {
     let temp = tempfile::tempdir().unwrap();
     let database = temp.path().join("plugboard.db");
