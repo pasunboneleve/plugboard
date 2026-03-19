@@ -76,7 +76,7 @@ def main() -> int:
         print("No Ollama replies yet.")
         return 0
 
-    recent = sorted(rows, key=lambda row: row[0])
+    recent = sorted(rows, key=lambda row: row[0], reverse=True)
 
     for index, (created_at, topic, body) in enumerate(recent, start=1):
         label = "done" if topic == "ollama.done" else "failed"
