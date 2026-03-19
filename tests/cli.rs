@@ -981,6 +981,126 @@ fn check_can_emit_json() {
 }
 
 #[test]
+fn check_can_emit_json_for_success_reply() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "Review this code",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "Looks good",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+    let reply_message_id = String::from_utf8_lossy(&reply.stdout).trim().to_owned();
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "check",
+            "--conversation-id",
+            &conversation_id,
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["state"], "success");
+    assert_eq!(parsed["conversation_id"], conversation_id);
+    assert_eq!(parsed["message_id"], reply_message_id);
+    assert_eq!(parsed["topic"], "review.done");
+    assert_eq!(parsed["body"], "Looks good");
+}
+
+#[test]
+fn check_can_emit_json_for_failure_reply() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "Review this code",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.failed",
+            "Needs tests",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+    let reply_message_id = String::from_utf8_lossy(&reply.stdout).trim().to_owned();
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "check",
+            "--conversation-id",
+            &conversation_id,
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["state"], "failure");
+    assert_eq!(parsed["conversation_id"], conversation_id);
+    assert_eq!(parsed["message_id"], reply_message_id);
+    assert_eq!(parsed["topic"], "review.failed");
+    assert_eq!(parsed["body"], "Needs tests");
+}
+
+#[test]
 fn request_wakes_run_once_worker_and_returns_reply_on_fresh_topic() {
     let temp = tempfile::tempdir().unwrap();
     let database = temp.path().join("plugboard.db");

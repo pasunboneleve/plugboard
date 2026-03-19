@@ -4,6 +4,11 @@ use serde_json::json;
 use crate::error::{PlugboardError, Result};
 use crate::exchange::Exchange;
 
+enum CheckState {
+    Success,
+    Failure,
+}
+
 #[derive(Debug, Args)]
 #[command(
     about = "Check one conversation for a terminal success or failure reply",
@@ -27,60 +32,59 @@ pub fn execute(exchange: &impl Exchange, args: CheckArgs) -> Result<()> {
         .rev()
         .find(|message| message.topic == args.success_topic || message.topic == args.failure_topic);
 
-    match terminal {
-        Some(message) if message.topic == args.success_topic => {
-            if args.json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&json!({
-                        "state": "success",
-                        "conversation_id": args.conversation_id,
-                        "message_id": message.id,
-                        "topic": message.topic,
-                        "body": message.body,
-                    }))?
-                );
-            } else {
-                println!(
-                    "success conversation_id={} message_id={} topic={}\n{}",
-                    args.conversation_id, message.id, message.topic, message.body
-                );
-            }
-            Ok(())
+    if let Some(message) = terminal {
+        let state = if message.topic == args.success_topic {
+            CheckState::Success
+        } else {
+            CheckState::Failure
+        };
+
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "state": state_name(&state),
+                    "conversation_id": args.conversation_id,
+                    "message_id": message.id,
+                    "topic": message.topic,
+                    "body": message.body,
+                }))?
+            );
+        } else {
+            println!(
+                "{} conversation_id={} message_id={} topic={}\n{}",
+                state_name(&state),
+                args.conversation_id,
+                message.id,
+                message.topic,
+                message.body
+            );
         }
-        Some(message) => {
-            if args.json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&json!({
-                        "state": "failure",
-                        "conversation_id": args.conversation_id,
-                        "message_id": message.id,
-                        "topic": message.topic,
-                        "body": message.body,
-                    }))?
-                );
-            } else {
-                println!(
-                    "failure conversation_id={} message_id={} topic={}\n{}",
-                    args.conversation_id, message.id, message.topic, message.body
-                );
-            }
+
+        if matches!(state, CheckState::Failure) {
             Err(PlugboardError::SilentExit { code: 1 })
-        }
-        None => {
-            if args.json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&json!({
-                        "state": "pending",
-                        "conversation_id": args.conversation_id,
-                    }))?
-                );
-            } else {
-                println!("pending conversation_id={}", args.conversation_id);
-            }
+        } else {
             Ok(())
         }
+    } else {
+        if args.json {
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "state": "pending",
+                    "conversation_id": args.conversation_id,
+                }))?
+            );
+        } else {
+            println!("pending conversation_id={}", args.conversation_id);
+        }
+        Ok(())
+    }
+}
+
+fn state_name(state: &CheckState) -> &'static str {
+    match state {
+        CheckState::Success => "success",
+        CheckState::Failure => "failure",
     }
 }
