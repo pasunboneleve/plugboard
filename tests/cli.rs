@@ -100,6 +100,7 @@ fn publish_and_read_help_are_concrete() {
     let read_stdout = String::from_utf8_lossy(&read_help.stdout);
     assert!(read_stdout.contains("already published to the exchange"));
     assert!(read_stdout.contains("tab-separated"));
+    assert!(read_stdout.contains("--conversation-id"));
 
     let request_help = Command::new(binary)
         .args(["request", "--help"])
@@ -125,6 +126,49 @@ fn publish_and_read_help_are_concrete() {
     assert!(inspect_stdout.contains("prefer `plugboard read --topic ...`"));
     assert!(inspect_stdout.contains("large amount of historical data"));
     assert!(inspect_stdout.contains("temporary database"));
+}
+
+#[test]
+fn read_supports_conversation_id_alias() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "hello",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+
+    let connection = Connection::open(&database).unwrap();
+    let conversation_id: String = connection
+        .query_row(
+            "SELECT conversation_id FROM messages ORDER BY created_at DESC, id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    let read = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(read.status.success());
+    let stdout = String::from_utf8_lossy(&read.stdout);
+    assert!(stdout.contains("review.request"));
+    assert!(stdout.contains("hello"));
 }
 
 #[test]

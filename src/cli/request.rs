@@ -66,6 +66,10 @@ pub fn execute(exchange: &impl Exchange, args: RequestArgs) -> Result<()> {
         producer: args.producer,
         metadata_json,
     })?;
+    debug!(
+        "published request id={} conversation_id={} topic={}",
+        request.id, request.conversation_id, request.topic
+    );
 
     let reply = await_reply(
         exchange,

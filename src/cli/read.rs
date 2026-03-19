@@ -6,7 +6,7 @@ use crate::exchange::Exchange;
 #[derive(Debug, Args)]
 #[command(
     about = "Read messages already published to the exchange",
-    long_about = "Read messages that were already published to the exchange.\n\nUse `--topic` to read all messages for a topic or `--conversation` to read a threaded conversation. Output is tab-separated as: created_at, topic, body.\n\nMessages are listed in stored order so the output reflects the conversation or topic history."
+    long_about = "Read messages that were already published to the exchange.\n\nUse `--topic` to read all messages for a topic or `--conversation-id` to read one correlated conversation. Output is tab-separated as: created_at, topic, body.\n\nMessages are listed in stored order so the output reflects the conversation or topic history."
 )]
 pub struct ReadArgs {
     #[arg(
@@ -16,9 +16,10 @@ pub struct ReadArgs {
     )]
     pub topic: Option<String>,
     #[arg(
-        long,
+        long = "conversation",
+        alias = "conversation-id",
         conflicts_with = "topic",
-        help = "Read all messages in a conversation thread"
+        help = "Read all messages in one conversation thread by conversation id"
     )]
     pub conversation: Option<String>,
 }
