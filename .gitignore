@@ -7,3 +7,6 @@
 # Don't persist state
 
 .plugboard/
+
+# Python cache
+**/__pycache__/
