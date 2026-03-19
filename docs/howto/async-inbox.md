@@ -155,10 +155,21 @@ heuristic and less reliable than using `message_id` or
 3. Later, check the exact exchange:
 
    ```bash
-   ./target/debug/plugboard read --conversation-id <conversation-id>
+   ./target/debug/plugboard check \
+     --conversation-id <conversation-id> \
+     --success-topic ollama.done \
+     --failure-topic ollama.failed \
+     --json
    ```
 
 4. Report one of:
 
-   * `Yes, it replied ...` if a terminal success/failure message exists
-   * `No reply yet.` if no terminal reply exists in that conversation
+   * `Yes, it replied ...` if `state` is `success` or `failure`
+   * `No reply yet.` if `state` is `pending`
+
+If more detail is needed after that compact check, then read the full
+conversation:
+
+```bash
+./target/debug/plugboard read --conversation-id <conversation-id>
+```

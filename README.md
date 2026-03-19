@@ -202,12 +202,20 @@ For agent use, the preferred async tracking path is:
 3. later check:
 
    ```bash
-   ./target/debug/plugboard read --conversation-id <conversation-id>
+   ./target/debug/plugboard check \
+     --conversation-id <conversation-id> \
+     --success-topic <success-topic> \
+     --failure-topic <failure-topic> \
+     --json
    ```
 
 `conversation_id` is the primary retrieval handle. Topics are for
 routing; the conversation is the natural unit of meaning for one
 request/reply exchange.
+
+`check` is a thin helper over conversation-based reads. It tells you
+whether the conversation is still pending, has a terminal success reply,
+or has a terminal failure reply.
 
 If those identifiers are unavailable, fall back to matching the request
 body text, preferring the latest plausible request, but that is a

@@ -117,9 +117,17 @@ Use `message_id` as supporting detail.
 
 Later checks should prefer:
 
-./target/debug/plugboard read --conversation-id <conversation-id>
+./target/debug/plugboard check \
+  --conversation-id <conversation-id> \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --json
 
 This is the preferred path over request-body matching.
+
+If more detail is needed, then use:
+
+./target/debug/plugboard read --conversation-id <conversation-id>
 
 Only fall back to matching request body text if those identifiers are
 not available. When doing that, prefer the latest plausible request and
@@ -142,7 +150,7 @@ For agents and tools, the default async pattern is:
 
 1. send request
 2. capture `conversation_id`
-3. later read by `conversation_id`
+3. later check by `conversation_id`
 4. determine whether a terminal success or failure reply exists
 
 ### Check ollama
@@ -167,7 +175,7 @@ argument overrides that count.
 
 This helper is friendly, but it is not the primary async tracking key.
 For reliable agent follow-up, prefer stored `conversation_id` values and
-`read --conversation-id`.
+`plugboard check --conversation-id ...`.
 
 ### Strict rules
 

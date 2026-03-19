@@ -75,6 +75,7 @@ fn top_level_help_describes_topic_based_workflow() {
     assert!(stdout.contains("built around topics"));
     assert!(stdout.contains("publish"));
     assert!(stdout.contains("read"));
+    assert!(stdout.contains("check"));
     assert!(stdout.contains("request"));
     assert!(stdout.contains("long-running worker"));
 }
@@ -126,6 +127,17 @@ fn publish_and_read_help_are_concrete() {
     assert!(inspect_stdout.contains("prefer `plugboard read --topic ...`"));
     assert!(inspect_stdout.contains("large amount of historical data"));
     assert!(inspect_stdout.contains("temporary database"));
+
+    let check_help = Command::new(binary)
+        .args(["check", "--help"])
+        .output()
+        .unwrap();
+    assert!(check_help.status.success());
+    let check_stdout = String::from_utf8_lossy(&check_help.stdout);
+    assert!(check_stdout.contains("terminal reply"));
+    assert!(check_stdout.contains("conversation-based reads"));
+    assert!(check_stdout.contains("--conversation-id"));
+    assert!(check_stdout.contains("--json"));
 }
 
 #[test]
@@ -726,6 +738,198 @@ fn request_can_emit_publish_identifiers_as_json() {
     assert_eq!(parsed["message_id"], message_id);
     assert_eq!(parsed["conversation_id"], conversation_id);
     assert_eq!(parsed["topic"], "review.request");
+}
+
+#[test]
+fn check_reports_pending_when_no_terminal_reply_exists() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "Review this code",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (_message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "check",
+            "--conversation-id",
+            &conversation_id,
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!("pending conversation_id={conversation_id}")
+    );
+}
+
+#[test]
+fn check_reports_success_reply_by_conversation() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "Review this code",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.done",
+            "Looks good",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "check",
+            "--conversation-id",
+            &conversation_id,
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("success conversation_id="));
+    assert!(stdout.contains("topic=review.done"));
+    assert!(stdout.contains("Looks good"));
+}
+
+#[test]
+fn check_reports_failure_and_exits_nonzero() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "Review this code",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.failed",
+            "Needs tests",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "check",
+            "--conversation-id",
+            &conversation_id,
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("failure conversation_id="));
+    assert!(stdout.contains("topic=review.failed"));
+    assert!(stdout.contains("Needs tests"));
+}
+
+#[test]
+fn check_can_emit_json() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "review.request",
+            "Review this code",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (_message_id, conversation_id) = latest_message_for_topic(&database, "review.request");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "check",
+            "--conversation-id",
+            &conversation_id,
+            "--success-topic",
+            "review.done",
+            "--failure-topic",
+            "review.failed",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["state"], "pending");
+    assert_eq!(parsed["conversation_id"], conversation_id);
 }
 
 #[test]
