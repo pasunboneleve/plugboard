@@ -51,6 +51,15 @@ does not execute the backend itself.
 `ollama.request`. Keep it running in a separate terminal while sending
 requests.
 
+For a single-message experiment, you can use the one-shot helper
+instead:
+
+```bash
+./scripts/run-ollama-worker-once
+```
+
+That worker processes one matching message and exits.
+
 WARNING: If no worker is running for a topic, requests will not be
 processed and may appear to hang.
 
@@ -116,6 +125,7 @@ Persistent worker mode (recommended):
 One-shot worker mode:
 
 * start a worker with `plugboard run --once`
+* or use `./scripts/run-ollama-worker-once` for the Ollama demo topic
 * process a single matching message
 * exit after that one message
 

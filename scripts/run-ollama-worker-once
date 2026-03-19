@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec ./target/debug/plugboard run --once \
+  --topic ollama.request \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  -- ./target/debug/ollama-plugin

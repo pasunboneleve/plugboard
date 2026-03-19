@@ -58,6 +58,10 @@ Start the Ollama worker with:
 
 ./scripts/run-ollama-worker
 
+For one-shot debugging or a single local experiment, you can use:
+
+./scripts/run-ollama-worker-once
+
 This starts a long-lived worker. For normal Plugboard usage, prefer:
 
 1. enqueue work now
