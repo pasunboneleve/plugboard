@@ -26,6 +26,34 @@ Getting Started
 Plugboard is a textual exchange; workers listen on topics and process
 messages using simple stdin/stdout contracts.
 
+For a first local Ollama run, use two terminals.
+
+Worker (must stay running):
+
+```bash
+./scripts/run-ollama-worker
+```
+
+Client:
+
+```bash
+./target/debug/plugboard request ollama.request \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --meta model=llama3.2:latest \
+  --body "1+3"
+```
+
+`plugboard request` only publishes a message and waits for a reply; it
+does not execute the backend itself.
+
+`./scripts/run-ollama-worker` starts a long-lived worker for
+`ollama.request`. Keep it running in a separate terminal while sending
+requests.
+
+WARNING: If no worker is running for a topic, requests will not be
+processed and may appear to hang.
+
 - [Quickstart](docs/quickstart.md)
 - [Plugin Backend Options](docs/plugin-backends.md)
 - [Install a Local Model Backend](docs/howto/install-local-model-backend.md)
@@ -64,6 +92,30 @@ It publishes a request, waits for the first correlated follow-up in the
 same conversation, prints the reply body, and exits. Treat that as a
 convenience wrapper around the asynchronous exchange, not as the main
 workflow to optimize your mental model around.
+
+Worker lifecycle
+----------------
+
+Plugboard uses a queue/worker model.
+
+`plugboard run` starts a worker that listens on a topic, claims
+matching messages, runs a backend, and publishes follow-up messages.
+Workers are typically long-lived processes.
+
+If no worker is running for a topic, requests will queue and
+`plugboard request` will wait indefinitely.
+
+Persistent worker mode (recommended):
+
+* start a worker once
+* keep it running in a separate terminal
+* reuse it for many requests
+
+One-shot worker mode:
+
+* start a worker with `plugboard run --once`
+* process a single matching message
+* exit after that one message
 
 Async-First Usage
 -----------------
@@ -109,6 +161,30 @@ focused.
 Use `plugboard request` or `plugboard publish` to enqueue work. Use
 `plugboard read` to come back and see what happened. Use
 `plugboard inspect` only when the normal story is not enough.
+
+Troubleshooting
+---------------
+
+Problem: `plugboard request` hangs
+
+Likely causes:
+
+* No worker is running
+* The worker is listening on a different topic
+
+How to verify:
+
+* Start the worker in a separate terminal:
+
+  ```bash
+  ./scripts/run-ollama-worker
+  ```
+
+* Retry the request
+
+Old messages on `ollama.done` do not prove that the current request was
+processed. `plugboard request` waits for a reply in the same
+conversation, not just any older success message on the topic.
 
 Three-layer model
 -----------------
