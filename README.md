@@ -1,6 +1,23 @@
 # Plugboard
 
+[![cargo-test](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml/badge.svg)](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml)
+
 Plugboard is a local textual exchange for cooperating programs.
+
+<p align="center">
+  <a href="https://blog.sciencemuseum.org.uk/life-on-the-exchange-stories-from-the-hello-girls/"
+  target="_blank" rel="noopener noreferrer"> <img
+  src="docs/images/plugboard-switchboard.jpg" alt="Manual switchboard
+  operators routing connections" width="600" />
+  </a>
+</p>
+
+<p align="center">
+    <em>Manual switchboard operators routing connections
+    — an early “plugboard” for human communication. Source: Science Museum
+    / SSPL.
+    </em>
+</p>
 
 It gives independent tools one small shared surface:
 
@@ -14,8 +31,8 @@ The core mental model is:
 * async-first workflow: enqueue work now, read replies later
 * workers and plugins at the edge, not inside the core
 
-`plugboard request` exists for quick publish-and-wait experiments, but the
-main model is still durable asynchronous exchange.
+`plugboard request` exists for quick publish-and-wait experiments, but
+the main model is still durable asynchronous exchange.
 
 ## Getting started
 
@@ -59,8 +76,10 @@ Task-oriented guides:
 
 * [Async inbox workflow](docs/howto/async-inbox.md)
 * [Write a worker plugin](docs/howto/write-a-worker-plugin.md)
-* [Install a local model backend](docs/howto/install-local-model-backend.md)
-* [Plugboard with a local model](docs/howto/plugboard-with-local-model.md)
+* [Install a local model
+  backend](docs/howto/install-local-model-backend.md)
+* [Plugboard with a local
+  model](docs/howto/plugboard-with-local-model.md)
 * [Codex to Gemini workflow](docs/howto/codex-to-gemini.md)
 
 Additional reference:
