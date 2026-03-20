@@ -27,6 +27,7 @@ results later — all through plain text.
     <sub>Operators routing connections</sub>
     <sub>— an early “plugboard” for human communication.</sub>
 </p>
+<br>
 
 It gives independent tools one small shared surface:
 
