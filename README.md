@@ -1,12 +1,22 @@
+````md
 Plugboard
 =========
 
 [![cargo-test](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml/badge.svg)](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml)
 
-**Plugboard** is a local textual exchange for cooperating programs.
+<p align="center">
+  <a href="https://blog.sciencemuseum.org.uk/life-on-the-exchange-stories-from-the-hello-girls/" target="_blank" rel="noopener noreferrer">
+    <img src="docs/images/Archive-picture-of-operators-on-the-Enfield-switchboard-3-credit-Science-Museum-SSPL-low-res.jpg" alt="Manual switchboard operators routing connections" style="width:50%;" />
+  </a>
+</p>
 
-It keeps the core small and Unix-like: publish text, read text, claim
-work, and append follow-up messages. Plugboard does not define agents,
+<p align="center"><em>Manual switchboard operators routing connections — an early “plugboard” for human communication. Source: Science Museum / SSPL.</em></p>
+
+**Plugboard** is a local textual exchange where independent programs cooperate.
+
+Publish text. Read text. Claim work. Append results.
+
+Plugboard keeps the core small and Unix-like. It does not define agents,
 workflow graphs, or identity-based delivery. It routes interest by
 topic and leaves behaviour to processes outside the core.
 
@@ -19,14 +29,6 @@ The main operating model is asynchronous:
 That durable, inspectable exchange is the product. Blocking
 request/reply is available for quick experiments, but it is not the
 main thing Plugboard is for.
-
-<p align="center">
-  <a href="https://blog.sciencemuseum.org.uk/life-on-the-exchange-stories-from-the-hello-girls/" target="_blank" rel="noopener noreferrer">
-    <img src="docs/images/Archive-picture-of-operators-on-the-Enfield-switchboard-3-credit-Science-Museum-SSPL-low-res.jpg" alt="Archive photograph of operators on the Enfield switchboard" style="width:50%;" />
-  </a>
-</p>
-
-<p align="center"><em>Figure 1. Archive photograph of operators on the Enfield switchboard. Source: Science Museum / SSPL.</em></p>
 
 Getting Started
 ---------------
@@ -98,16 +100,16 @@ That worker processes one matching message and exits.
 WARNING: If no worker is running for a topic, requests will not be
 processed and may appear to hang.
 
-- [Quickstart](docs/quickstart.md)
-- [Plugin Backend Options](docs/plugin-backends.md)
-- [Install a Local Model Backend](docs/howto/install-local-model-backend.md)
-- [Plugboard with a Local Model](docs/howto/plugboard-with-local-model.md)
-- [Async Inbox Workflow](docs/howto/async-inbox.md)
-- [Completion Notifications](docs/howto/completion-notifications.md)
-- [Local Model Workflow](docs/howto/local-model-workflow.md)
-- [Measure Local Latency](docs/howto/measure-latency.md)
-- [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
-- [Codex to Gemini Workflow](docs/howto/codex-to-gemini.md)
+* [Quickstart](docs/quickstart.md)
+* [Plugin Backend Options](docs/plugin-backends.md)
+* [Install a Local Model Backend](docs/howto/install-local-model-backend.md)
+* [Plugboard with a Local Model](docs/howto/plugboard-with-local-model.md)
+* [Async Inbox Workflow](docs/howto/async-inbox.md)
+* [Completion Notifications](docs/howto/completion-notifications.md)
+* [Local Model Workflow](docs/howto/local-model-workflow.md)
+* [Measure Local Latency](docs/howto/measure-latency.md)
+* [Write a Worker Plugin](docs/howto/write-a-worker-plugin.md)
+* [Codex to Gemini Workflow](docs/howto/codex-to-gemini.md)
 
 The repository includes a deterministic demo plugin, a real Gemini
 adapter, and a local-model adapter built around Ollama for low-latency
@@ -150,8 +152,7 @@ those identifiers and later use `conversation_id` to check the exact
 request/reply thread. When parse reliability matters, prefer
 `plugboard request --json`.
 
-Worker lifecycle
-----------------
+## Worker lifecycle
 
 Plugboard uses a queue/worker model.
 
@@ -175,8 +176,7 @@ One-shot worker mode:
 * process a single matching message
 * exit after that one message
 
-Async-First Usage
------------------
+## Async-First Usage
 
 The most useful Plugboard workflow is:
 
@@ -207,8 +207,7 @@ Foreground parallel tools are still useful. They are just solving a
 different problem: do more work at once while the user waits. Plugboard
 is for leaving work in a durable local exchange and coming back later.
 
-Read vs Inspect
----------------
+## Read vs Inspect
 
 Use `plugboard read` for normal usage. It is the routine way to consume
 messages from a topic or conversation, especially when you are checking
@@ -277,8 +276,7 @@ body text, preferring the latest plausible request, but that is a
 heuristic and less reliable than using the IDs Plugboard already
 returns.
 
-Troubleshooting
----------------
+## Troubleshooting
 
 Problem: `plugboard request` hangs
 
@@ -301,8 +299,7 @@ Old messages on `ollama.done` do not prove that the current request was
 processed. `plugboard request` waits for a reply in the same
 conversation, not just any older success message on the topic.
 
-Three-layer model
------------------
+## Three-layer model
 
 Plugboard is easiest to understand as three layers:
 
@@ -344,12 +341,13 @@ topic-based, not identity-based. Agent behaviour lives entirely in the
 worker host and its plugins.
 
 ## Why
+
 Many automation and AI systems rely on tightly coupled frameworks:
 
-- shared SDKs
-- rigid schemas
-- centralized orchestration
-- strongly typed RPC between services
+* shared SDKs
+* rigid schemas
+* centralized orchestration
+* strongly typed RPC between services
 
 These approaches couple tools together and make systems harder to
 evolve.
@@ -360,19 +358,19 @@ independent tools.
 
 ## Design goals
 
-- **Local-first**
+* **Local-first**
   Designed to run on a single machine.
 
-- **Text-first**
+* **Text-first**
   Messages are textual. Participants decide how to interpret them.
 
-- **Minimal core**
+* **Minimal core**
   Plugboard manages message lifecycle, not agent semantics.
 
-- **Decoupled participants**
+* **Decoupled participants**
   Tools do not need to share a framework or runtime.
 
-- **Inspectable system**
+* **Inspectable system**
   Users should be able to understand activity by reading messages and
   claims.
 
@@ -380,11 +378,11 @@ independent tools.
 
 Plugboard is not:
 
-- an agent framework
-- a workflow orchestration engine
-- a typed RPC system
-- a vendor-specific AI runtime
-- a distributed task scheduler
+* an agent framework
+* a workflow orchestration engine
+* a typed RPC system
+* a vendor-specific AI runtime
+* a distributed task scheduler
 
 Programs remain ordinary processes outside the exchange.
 
@@ -400,11 +398,11 @@ publisher -> Plugboard topic -> worker host -> plugin -> follow-up topic
 
 The exchange manages:
 
-- message storage
-- topic-based visibility
-- atomic claiming
-- claim completion, failure, and timeout state
-- follow-up message history
+* message storage
+* topic-based visibility
+* atomic claiming
+* claim completion, failure, and timeout state
+* follow-up message history
 
 It does not define what a reviewer, coder, planner, or agent is.
 
@@ -424,19 +422,19 @@ V1 should process one message at a time.
 
 For simple command plugins, the worker uses a stdin/stdout contract:
 
-- message body is written to plugin stdin
-- stdin is then closed
-- stdout is captured as success output
-- stderr is captured for diagnostics
-- non-zero exit is treated as failure
+* message body is written to plugin stdin
+* stdin is then closed
+* stdout is captured as success output
+* stderr is captured for diagnostics
+* non-zero exit is treated as failure
 
 Each worker configuration also defines:
 
-- the watched topic
-- success topic
-- failure topic
-- timeout duration
-- optional worker name
+* the watched topic
+* success topic
+* failure topic
+* timeout duration
+* optional worker name
 
 Timeouts publish to `<topic>.timed_out`.
 
@@ -446,36 +444,36 @@ A plugin defines the actual execution behaviour behind a worker.
 
 Conceptually, a plugin receives:
 
-- the input message body
-- selected message metadata
-- worker execution context such as timeout or plugin name
+* the input message body
+* selected message metadata
+* worker execution context such as timeout or plugin name
 
 And returns either:
 
-- a success result
-- a failure result
-- or a timeout outcome enforced by the worker host
+* a success result
+* a failure result
+* or a timeout outcome enforced by the worker host
 
 Plugins in v1 should be:
 
-- non-interactive
-- bounded
-- terminating
+* non-interactive
+* bounded
+* terminating
 
 Example plugin types:
 
-- **command**
+* **command**
   Wraps a local CLI using stdin/stdout.
 
-- **API**
+* **API**
   Calls an SDK or remote LLM API and returns textual output.
 
-- **wrapper**
+* **wrapper**
   Adapts an awkward CLI such as `gemini` into a clean
   non-interactive contract, while still accepting the worker's message
   body on `stdin`.
 
-- **session**
+* **session**
   A future stateful plugin model, not required in v1.
 
 ## End-to-end example
