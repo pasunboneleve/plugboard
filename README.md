@@ -2,21 +2,28 @@
 
 [![cargo-test](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml/badge.svg)](https://github.com/pasunboneleve/plugboard/actions/workflows/cargo-test.yml)
 
-Plugboard is a local textual exchange for cooperating programs.
+Plugboard is a local textual exchange where independent programs
+cooperate.
+
+---
 
 <p align="center">
   <a href="https://blog.sciencemuseum.org.uk/life-on-the-exchange-stories-from-the-hello-girls/"
-  target="_blank" rel="noopener noreferrer"> <img
-  src="docs/images/plugboard-switchboard.jpg" alt="Manual switchboard
-  operators routing connections" width="600" />
+  target="_blank"
+  rel="noopener noreferrer">
+    <img
+        src="docs/images/plugboard-switchboard.jpg"
+        alt="Manual switchboard operators routing connections"
+        style="width:45%;"
+        />
   </a>
 </p>
 
 <p align="center">
-    <em>Manual switchboard operators routing connections
-    — an early “plugboard” for human communication. Source: Science Museum
-    / SSPL.
-    </em>
+    <sub>Operators routing connections</sub>
+    <sub>— an early “plugboard” for human communication.</sub>
+    <br>
+    <sub>Science Museum / SSPL.</sub>
 </p>
 
 It gives independent tools one small shared surface:
