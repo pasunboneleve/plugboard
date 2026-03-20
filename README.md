@@ -20,11 +20,11 @@ That durable, inspectable exchange is the product. Blocking
 request/reply is available for quick experiments, but it is not the
 main thing Plugboard is for.
 
-<figure style="margin: 1.5rem 0;">
-  <a href="https://blog.sciencemuseum.org.uk/life-on-the-exchange-stories-from-the-hello-girls/" target="_blank" rel="noopener noreferrer" style="text-decoration:none;border:0;">
-    <img src="docs/images/Archive-picture-of-operators-on-the-Enfield-switchboard-3-credit-Science-Museum-SSPL-low-res.jpg" alt="Archive photograph of operators on the Enfield switchboard" loading="lazy" style="display: block; width: 80%; height: auto; margin: 0 auto;" />
+<figure style="margin: 1.5rem 0; text-align: center;">
+  <a href="https://blog.sciencemuseum.org.uk/life-on-the-exchange-stories-from-the-hello-girls/" target="_blank" rel="noopener noreferrer" style="display:block; width:56%; margin:0 auto; text-decoration:none; border:0;">
+    <img src="docs/images/Archive-picture-of-operators-on-the-Enfield-switchboard-3-credit-Science-Museum-SSPL-low-res.jpg" alt="Archive photograph of operators on the Enfield switchboard" loading="lazy" style="display:block; width:100%; height:auto; margin:0 auto;" />
   </a>
-  <figcaption style="width: 80%; margin: 0.5rem auto 0; text-align: center;">
+  <figcaption style="display:block; width:56%; margin:0.5rem auto 0; text-align:center;">
     <strong>Figure 1.</strong> Archive photograph of operators on the Enfield switchboard.
     Source: Science Museum / SSPL.
   </figcaption>
