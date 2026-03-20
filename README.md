@@ -5,6 +5,10 @@
 Plugboard is a local textual exchange where independent programs
 cooperate.
 
+It is designed for asynchronous workflows — from simple tools like
+`grep` to AI agents.  Publish work, do something else, read the
+results later — all through plain text.
+
 ---
 
 <p align="center">
@@ -34,7 +38,7 @@ It gives independent tools one small shared surface:
 
 The core mental model is:
 
-* local textual exchange, backed by SQLite
+* local textual exchange, backed by **SQLite**
 * async-first workflow: enqueue work now, read replies later
 * workers and plugins at the edge, not inside the core
 
