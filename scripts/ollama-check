@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+from datetime import datetime
+import heapq
+import re
+import subprocess
+import sys
+from typing import List, Optional, Tuple
+
+DEFAULT_COUNT = 10
+TOPICS = ("ollama.done", "ollama.failed")
+READ_PREFIX = ("./target/debug/plugboard", "read", "--topic")
+ROW_START = re.compile(r"^(\S+)\t(\S+)\t(.*)$")
+CHECK_PREFIX = (
+    "./target/debug/plugboard",
+    "check",
+    "--success-topic",
+    "ollama.done",
+    "--failure-topic",
+    "ollama.failed",
+)
+CHECK_LINE = re.compile(r"^\[(?P<timestamp>[^\]]+)\] (?P<rest>.*)$")
+
+
+def format_human_timestamp(raw: str) -> str:
+    instant = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone()
+    now = datetime.now().astimezone()
+    if instant.date() == now.date():
+        return instant.strftime("%H:%M:%S")
+    return instant.strftime("%H:%M:%S, %-d %b")
+
+
+def format_check_output(stdout: str) -> str:
+    lines = stdout.splitlines()
+    if not lines:
+        return stdout
+
+    match = CHECK_LINE.match(lines[0])
+    if not match:
+        return stdout
+
+    lines[0] = f"[{format_human_timestamp(match.group('timestamp'))}] {match.group('rest')}"
+    formatted = "\n".join(lines)
+    if stdout.endswith("\n"):
+        formatted += "\n"
+    return formatted
+
+
+def push_recent(
+    heap: List[Tuple[str, str, str]],
+    entry: Tuple[str, str, str],
+    count: int,
+) -> None:
+    if len(heap) < count:
+        heapq.heappush(heap, entry)
+        return
+    if entry[0] > heap[0][0]:
+        heapq.heapreplace(heap, entry)
+
+
+def read_topic_into_heap(
+    topic: str,
+    heap: List[Tuple[str, str, str]],
+    count: int,
+) -> None:
+    with subprocess.Popen(
+        [*READ_PREFIX, topic],
+        text=True,
+        stdout=subprocess.PIPE,
+    ) as process:
+        if process.stdout is None:
+            raise RuntimeError("failed to read plugboard output")
+
+        current: Optional[Tuple[str, str, str]] = None
+        for raw_line in process.stdout:
+            line = raw_line.rstrip("\n")
+            match = ROW_START.match(line)
+            if match:
+                if current is not None:
+                    push_recent(heap, current, count)
+                current = (match.group(1), match.group(2), match.group(3))
+                continue
+
+            if current is None:
+                continue
+
+            current = (current[0], current[1], f"{current[2]}\n{line}")
+
+        if current is not None:
+            push_recent(heap, current, count)
+
+        return_code = process.wait()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(return_code, [*READ_PREFIX, topic])
+
+
+def run_recent(argv: List[str]) -> int:
+    if len(argv) == 0:
+        count = DEFAULT_COUNT
+    elif len(argv) == 1 and argv[0].isdigit() and int(argv[0]) > 0:
+        count = int(argv[0])
+    else:
+        print("usage: ./scripts/check-ollama [COUNT]", file=sys.stderr)
+        return 2
+
+    rows: List[Tuple[str, str, str]] = []
+    for topic in TOPICS:
+        read_topic_into_heap(topic, rows, count)
+
+    if not rows:
+        print("No Ollama replies yet.")
+        return 0
+
+    recent = sorted(rows, key=lambda row: row[0], reverse=True)
+    for index, (created_at, topic, body) in enumerate(recent, start=1):
+        label = "done" if topic == "ollama.done" else "failed"
+        print(f"[{label}] {format_human_timestamp(created_at)}")
+        print(body)
+        if index != len(recent):
+            print()
+            print("---")
+            print()
+
+    return 0
+
+
+def run_conversation(argv: List[str]) -> int:
+    if len(argv) != 1:
+        print(
+            "usage: ./scripts/check-ollama-conversation CONVERSATION_ID",
+            file=sys.stderr,
+        )
+        return 2
+
+    completed = subprocess.run(
+        [*CHECK_PREFIX, "--conversation-id", argv[0]],
+        text=True,
+        capture_output=True,
+    )
+
+    if completed.stdout:
+        print(format_check_output(completed.stdout), end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+
+    return completed.returncode
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print(
+            "usage: ./scripts/ollama-check {recent [COUNT] | conversation CONVERSATION_ID}",
+            file=sys.stderr,
+        )
+        return 2
+
+    command, *rest = sys.argv[1:]
+    if command == "recent":
+        return run_recent(rest)
+    if command == "conversation":
+        return run_conversation(rest)
+
+    print(
+        "usage: ./scripts/ollama-check {recent [COUNT] | conversation CONVERSATION_ID}",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
