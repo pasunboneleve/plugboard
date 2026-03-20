@@ -1,165 +1,52 @@
 # Plugin Backend Options
 
-Plugboard is the textual exchange. Backend choice lives in the worker
-host and plugin layer.
+This page is about backend choice at the plugin layer. For the core
+boundary, see [Design](design.md). For the worker and message model, see
+[Architecture](architecture.md).
 
-That is the key design boundary:
-
-* Plugboard remains topic-based and agent-agnostic
-* Plugboard does not manage agent identity, presence, routing, or sessions
-* different backend styles are plugin alternatives, not protocol changes
-
-The default operator story should also stay simple:
-
-1. enqueue work on a topic
-2. continue doing other work
-3. later read replies from the exchange
-
-Blocking request/reply exists as a convenience helper, not as the main
-mental model for using Plugboard.
-
-## Why this matters
-
-Different backends make Plugboard feel very different in practice.
-Some are ideal for tiny local demos. Others are better for warm agent
-setups or hosted integrations.
-
-The exchange does not need to change for any of them:
+Plugboard does not need to change for these variants:
 
 ```text
 publish -> topic -> worker host -> plugin/backend -> follow-up topic
 ```
 
-For the common passive request/reply case, Plugboard can also sit at the
-edge as:
+## Command-style transforms
 
-```text
-request -> topic -> worker host -> plugin/backend -> follow-up topic -> request waiter
-```
+Best when the backend already fits the default contract:
 
-That helper still uses the same message log, conversation correlation,
-and advisory wakeup rules. It is useful for quick experiments, but the
-durable async exchange remains the primary model.
+* read one input from `stdin`
+* write one result to `stdout`
+* exit
 
-## Async-first usage
+This is the simplest path for shell filters and deterministic tools.
 
-In normal use, `read` is the consumption command:
+## Local model adapters
 
-* `publish` or `request` enqueue work
-* `read` checks the inbox later
-* `inspect` is for forensics and debugging
+Best when you want a fast local demo or a low-latency development loop.
 
-That makes Plugboard different from tools that parallelize foreground
-work while still making the user wait in the same shell. Plugboard is
-meant to let the user move on and come back later.
+The current repository example is `ollama-plugin`, which talks to a
+local Ollama service.
 
-## 1. Simple stateless transforms
+## API adapters
 
-This is the baseline worker contract:
+Best when the natural integration point is a hosted service.
 
-* one message triggers one process
-* the worker writes the message body to plugin `stdin`
-* the plugin writes the result to `stdout`
-* the plugin exits
+The current repository example is `gemini-plugin`, which shells out to
+the Gemini CLI and returns a textual result.
 
-Best fit:
+## Warm or session-backed adapters
 
-* shell filters
-* deterministic transforms
-* small wrappers around passive CLIs
-* fast end-to-end demos
+Best when startup cost dominates execution time and a long-lived backend
+already exists.
 
-This is the easiest path to understand and debug. It keeps the worker
-model boring and Unix-like.
+Any session logic still belongs in the plugin layer. Plugboard core
+continues to see only topics, claims, and follow-up messages.
 
-## 2. Local model plugins
+## Choosing among them
 
-Local model plugins are for fast demos and development when a hosted
-agent CLI is too slow to start or too expensive to use for every test.
+Use the simplest backend that fits the job:
 
-A local model plugin may talk to:
-
-* a local inference server
-* a local runtime such as Ollama or llama.cpp
-* a model process already available on the machine
-
-Best fit:
-
-* responsive local demos
-* developer setup where low latency matters
-* proving Plugboard's usefulness without network dependencies
-* bounded, low-risk text transforms that small local models can handle
-
-From Plugboard's point of view, this is still just a plugin. The core
-does not care whether the backend is local or remote.
-
-## 3. Already-running agent or session-backed plugins
-
-Sometimes cold start is the real problem, not the model itself. In
-that case, a plugin can talk to an already-running agent or warm
-backend.
-
-This is appropriate when:
-
-* startup time dominates execution time
-* the backend keeps useful warm state
-* a long-lived local service or agent process already exists
-
-Important boundary:
-
-* any persistence or session logic belongs in the plugin or adapter
-* Plugboard still only sees topics, claims, follow-ups, and outcomes
-
-Plugboard should not grow built-in session management to support this.
-
-## 4. API plugins
-
-An API plugin calls an external service directly.
-
-Best fit:
-
-* hosted models
-* SaaS integrations
-* service APIs that are already natural request/response systems
-
-An API plugin still fits the same exchange pattern:
-
-* worker claims one message
-* plugin turns the message into an API request
-* plugin writes the final textual result back to `stdout`
-* worker publishes the follow-up message
-
-This keeps the core agent-agnostic while still allowing practical
-hosted integrations.
-
-## Choosing the right backend
-
-Use a simple stateless transform when you want the smallest possible
-workflow and the backend already fits stdin/stdout.
-
-Use a local model plugin when you want Plugboard to feel fast and
-useful on a developer machine.
-
-The current recommended local path in this repository is an Ollama
-adapter that talks to a local `ollama serve` instance and a small model
-such as `gemma3:1b`. Treat that path as a good fit for bounded
-rewrites, summaries, classifications, and similar narrow transforms,
-not as a strong showcase for broad open-ended reasoning.
-
-Use a session-backed plugin when warm state matters but you still want
-Plugboard to stay minimal.
-
-Use an API plugin when the cleanest integration point is a hosted
-service rather than a local CLI.
-
-## Current direction
-
-Plugboard already demonstrates the stateless command path and a real
-Gemini adapter. It now also includes a local Ollama-backed plugin for
-fast local demos. The next product direction is to strengthen:
-
-* the local-model path for low-latency demos
-* a clean API-plugin path for hosted backends
-
-Those additions belong in plugins, docs, and worker integrations, not
-in Plugboard core.
+* command transform for small deterministic tasks
+* local model adapter for responsive local work
+* API adapter for hosted integrations
+* warm adapter when persistent backend state matters

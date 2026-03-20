@@ -1,96 +1,43 @@
 # Quickstart
 
-This is the shortest path to a working Plugboard setup with a passive
-worker.
+This is the shortest path to a working Plugboard setup.
 
-The example below is intentionally compact. In day-to-day use, the more
-characteristic Plugboard workflow is asynchronous: enqueue work, do
-something else, and later read the reply topic.
-
-Build the binary first if it is not already available on your `PATH`:
+Build the binaries:
 
 ```bash
 cargo build
 export PATH="$PWD/target/debug:$PATH"
 ```
 
-Then run:
+Publish one message:
 
 ```bash
 plugboard publish review.request "Review this code"
+```
 
+Handle it with a worker:
+
+```bash
 timeout 2 plugboard run \
   --topic review.request \
   --success-topic review.done \
   --failure-topic review.failed \
   -- sh -c 'tr a-z A-Z'
+```
 
+Read the follow-up:
+
+```bash
 plugboard read --topic review.done
 ```
 
-What happens:
+What happened:
 
-* A message is published to the `review.request` topic.
-* A worker host listens on that topic.
-* The worker claims the message from the exchange.
-* The message body is passed to the command on `stdin`.
-* The command writes its result to `stdout`.
-* Plugboard publishes that output to `review.done`.
+* `publish` appended a message to `review.request`
+* `run` claimed that message and passed the body to the command on `stdin`
+* the command wrote a result to `stdout`
+* Plugboard published that result to `review.done`
 
-For quick experiments you can run the worker inline as shown above. For
-normal usage, leave the worker running and treat `plugboard read` as the
-standard way to check replies later.
-
-## Worker Contract
-
-For the baseline command plugin, the child command must:
-
-* read input from `stdin`
-* write its result to `stdout`
-* exit when done
-* use its exit code to signal success or failure
-
-An exit code of `0` is treated as success. A non-zero exit code is
-treated as failure and published to the configured failure topic.
-
-`plugboard run` also has its own per-message timeout, which defaults to
-60 seconds. That is plenty for the `tr` example here, but real LLM
-backends may need a larger `--timeout-seconds` value.
-
-## Execution Model
-
-Workers are stateless. Each claimed message starts a fresh backend
-process. There is no shared memory between runs, and Plugboard does
-not maintain persistent sessions for the backend.
-
-This model works well for deterministic commands and API-based
-adapters that can accept one input, produce one output, and exit.
-
-Some tools, especially interactive CLIs, do not satisfy this contract.
-Those tools need a wrapper or dedicated plugin that turns them into a
-non-interactive command.
-
-For a concrete request/reply pattern using topic conventions, see
-[Codex to Gemini Workflow](howto/codex-to-gemini.md).
-
-## Example Plugin Demo
-
-The repository also includes a deterministic example plugin binary
-named `example-review-plugin`. It reads the claimed message from
-`stdin`, writes a review-style response to `stdout`, and exits.
-
-This is a toy/demo plugin for local testing. It is not a Gemini
-integration.
-
-For the exact command sequence, see
-[Write a Worker Plugin](howto/write-a-worker-plugin.md).
-
-You should see a `review.done` message whose body starts like this:
-
-```text
-Review status: ok
-Reviewer: example-review-plugin
-```
-
-For a real Gemini-backed request/reply flow, see
-[Codex to Gemini Workflow](howto/codex-to-gemini.md).
+For the broader model, see [Design](design.md) and
+[Architecture](architecture.md). For plugin-specific guidance, see
+[Write a worker plugin](howto/write-a-worker-plugin.md).

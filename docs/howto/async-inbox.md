@@ -1,76 +1,25 @@
 # Async Inbox Workflow
 
-This is the simplest way to use Plugboard as an asynchronous exchange:
+This is the default Plugboard usage pattern:
 
-1. send work now
+1. enqueue work
 2. do something else
-3. later read replies
+3. check replies later
 
-Use this when you want Plugboard's real value: durable message history
-and the ability to come back later without keeping the foreground shell
-blocked.
+For the underlying model, see [Design](../design.md) and
+[Architecture](../architecture.md).
 
-## Terminal A: worker
+## Start a worker
 
-Keep the worker running in a separate terminal:
+Keep the Ollama worker running in a separate terminal:
 
 ```bash
 ./scripts/run-ollama-worker
 ```
 
-This is a long-lived worker for `ollama.request`.
+## Send work
 
-## Terminal B: enqueue work
-
-Send work without waiting for an immediate reply:
-
-```bash
-./target/debug/plugboard publish \
-  ollama.request \
-  "Summarize Rust ownership in one short paragraph."
-```
-
-Or use `request` when you want Plugboard to create a correlated
-conversation while still thinking in terms of queued work:
-
-```bash
-./target/debug/plugboard request \
-  ollama.request \
-  --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --meta model=llama3.2:latest \
-  --body "Summarize Rust ownership in one short paragraph."
-```
-
-If you do not want to block, prefer `publish` and come back later with
-`read`.
-
-When `request` publishes, it also emits stable identifiers on `stderr`:
-
-```text
-published message_id=<message-id> conversation_id=<conversation-id> topic=ollama.request
-```
-
-Or, for agent use:
-
-```bash
-./target/debug/plugboard request \
-  ollama.request \
-  --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --json \
-  --body "Summarize Rust ownership in one short paragraph."
-```
-
-which emits:
-
-```json
-{"event":"published","message_id":"...","conversation_id":"...","topic":"ollama.request"}
-```
-
-Capture `conversation_id`. That is the primary async tracking key.
-
-For a truly non-blocking send, use `publish` instead:
+Non-blocking send:
 
 ```bash
 ./target/debug/plugboard publish \
@@ -80,165 +29,52 @@ For a truly non-blocking send, use `publish` instead:
   --json
 ```
 
-That returns immediately. Capture `conversation_id`, then check later.
+Capture `conversation_id` from the publish event. That is the primary
+handle for later checks.
 
-For humans, do not surface the raw JSON directly. Parse it internally
-and answer in plain text, for example:
+If you want the blocking convenience path instead, use:
 
-* `Sent to Ollama.`
-* `Conversation ID: <conversation-id>`
+```bash
+./target/debug/plugboard request \
+  ollama.request \
+  --success-topic ollama.done \
+  --failure-topic ollama.failed \
+  --body "Summarize Rust ownership in one short paragraph."
+```
 
-For agents and tools, prefer the JSON form when parse reliability
-matters. The intended pattern is:
+## Check later
 
-1. send request
-2. capture `conversation_id`
-3. store it in agent working memory
-4. later read by that `conversation_id`
-
-## Do something else
-
-At this point, leave the worker alone and continue with other work.
-
-## Later: read replies
-
-Check the reply topic:
+Read the reply topic:
 
 ```bash
 ./target/debug/plugboard read --topic ollama.done
 ```
 
-If you want to narrow the view to one correlated exchange, read by
-conversation id instead:
+Or read one conversation:
 
 ```bash
 ./target/debug/plugboard read --conversation-id <conversation-id>
 ```
 
-That is the preferred way for agents and tools to check a specific
-request later.
-
-For a compact terminal-state check, use:
+Or do a compact terminal-state check:
 
 ```bash
 ./target/debug/plugboard check \
   --conversation-id <conversation-id> \
   --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --json
+  --failure-topic ollama.failed
 ```
 
-A terminal reply is any message in that conversation whose topic is the
-configured success or failure topic.
-
-For prompt-level async agent use, this conversation-based `check` path
-is the default meaning of “check Ollama”:
-
-1. send work
-2. capture `conversation_id`
-3. later run `plugboard check --conversation-id ...`
-4. report:
-   - `Not yet.`
-   - `Yes — <reply body>.`
-   - `It failed: <failure body>`
-
-For natural-language Ollama usage, prefer the helper-layer path:
+For natural-language Ollama workflows, prefer:
 
 ```bash
 ./scripts/check-ollama-conversation <conversation-id>
 ```
 
-Reserve direct `plugboard check --conversation-id ...` for low-level,
-manual, or debugging use.
+## Notes
 
-Only use recent-reply browsing if the user explicitly asks for the
-Ollama inbox or recent replies.
-
-The separate recent-inbox helper is:
-
-```bash
-./scripts/check-ollama
-```
-
-That helper shows recent replies from `ollama.done` and `ollama.failed`
-together. It is for inbox-style browsing, not for checking one specific
-stored async task, and it renders reply timestamps in a friendlier local
-format for humans.
-
-Use `inspect` only when the normal topic or conversation view is not
-enough.
-
-## Mental model
-
-`publish` and `request` enqueue work.
-
-`read` is the normal way to consume replies later.
-
-`inspect` is for debugging and forensics.
-
-For the Ollama demo path:
-
-* `ask ollama` maps to the blocking request path
-* `send ollama` maps to the non-blocking publish path
-* `check ollama` maps to checking the stored `conversation_id` from the
-  most recent async send
-* `./scripts/check-ollama` is a separate inbox helper for browsing
-  recent replies
-
-If IDs are unavailable, the fallback is to match the original request
-body text, preferring the latest plausible request, but that is
-heuristic and less reliable than using `message_id` or
-`conversation_id`.
-
-## Agent-oriented example
-
-1. Blocking path if you want the answer now:
-
-   ```bash
-   ./target/debug/plugboard request \
-     ollama.request \
-     --success-topic ollama.done \
-     --failure-topic ollama.failed \
-     --json \
-     --body "Rewrite this status update in calmer language."
-   ```
-
-2. Non-blocking path if you want to continue working:
-
-   ```bash
-   ./target/debug/plugboard publish \
-     ollama.request \
-     "Rewrite this status update in calmer language." \
-     --meta model=llama3.2:latest \
-     --json
-   ```
-
-3. Capture the publish event from `stderr` and store:
-
-   * `message_id`
-   * `conversation_id`
-
-4. Later, check the exact exchange:
-
-   ```bash
-   ./scripts/check-ollama-conversation <conversation-id>
-   ```
-
-5. Report one of:
-
-   * `Yes, it replied ...` if `state` is `success` or `failure`
-   * `No reply yet.` if `state` is `pending`
-
-The JSON output is for machine parsing. The user-facing answer should be
-short plain text, not the JSON wrapper.
-
-If more detail is needed after that compact check, then read the full
-conversation:
-
-```bash
-./target/debug/plugboard read --conversation-id <conversation-id>
-```
-
-If there is no remembered `conversation_id`, say so plainly instead of
-guessing from recent replies. Only fall back to body-text matching if
-the identifiers are unavailable and you must still attempt recovery.
+* `publish` and `request` both enqueue work.
+* `read` is the normal consumption path.
+* `inspect` is for debugging and forensics.
+* If identifiers are available, prefer `conversation_id` over request
+  body matching.
