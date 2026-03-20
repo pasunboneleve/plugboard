@@ -1,7 +1,10 @@
+use std::path::Path;
+
 use clap::Args;
 
 use crate::cli::message_identifiers::emit_publish_identifiers;
 use crate::cli::message_metadata::{merge_meta_into_metadata_json, parse_meta_args};
+use crate::cli::tracking::maybe_track_publish;
 use crate::domain::NewMessage;
 use crate::error::Result;
 use crate::exchange::Exchange;
@@ -36,7 +39,7 @@ pub struct PublishArgs {
     pub json: bool,
 }
 
-pub fn execute(exchange: &impl Exchange, args: PublishArgs) -> Result<()> {
+pub fn execute(exchange: &impl Exchange, args: PublishArgs, tracking_state_path: &Path) -> Result<()> {
     let meta = parse_meta_args(&args.meta)?;
     let metadata_json = merge_meta_into_metadata_json(args.metadata_json.as_deref(), &meta)?;
     let message = exchange.publish(NewMessage {
@@ -48,6 +51,7 @@ pub fn execute(exchange: &impl Exchange, args: PublishArgs) -> Result<()> {
         metadata_json,
     })?;
 
+    maybe_track_publish(&message, tracking_state_path)?;
     emit_publish_identifiers(&message, args.json)?;
     println!("{}", message.id);
     Ok(())

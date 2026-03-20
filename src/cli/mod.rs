@@ -1,12 +1,15 @@
+pub mod conversation_status;
 pub mod check;
 pub mod human_output;
 pub mod inspect;
 pub mod message_identifiers;
 pub mod message_metadata;
+pub mod notify;
 pub mod publish;
 pub mod read;
 pub mod request;
 pub mod run;
+pub mod tracking;
 
 use std::path::PathBuf;
 
@@ -42,6 +45,8 @@ pub enum Commands {
     Read(read::ReadArgs),
     #[command(about = "Check one conversation for a terminal success or failure reply")]
     Check(check::CheckArgs),
+    #[command(about = "Run a local completion notifier for tracked conversations")]
+    Notify(notify::NotifyArgs),
     #[command(about = "Publish a request and wait for one correlated reply")]
     Request(request::RequestArgs),
     #[command(about = "Inspect raw message and claim history for debugging and forensics")]
@@ -54,11 +59,13 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
     let exchange = SqliteExchange::open(&cli.database)?;
     exchange.init()?;
+    let tracking_state_path = tracking::tracking_state_path(&cli.database);
 
     match cli.command {
-        Commands::Publish(args) => publish::execute(&exchange, args),
+        Commands::Publish(args) => publish::execute(&exchange, args, &tracking_state_path),
         Commands::Read(args) => read::execute(&exchange, args),
         Commands::Check(args) => check::execute(&exchange, args),
+        Commands::Notify(args) => notify::execute(&exchange, args, &tracking_state_path),
         Commands::Request(args) => request::execute(&exchange, args),
         Commands::Inspect(args) => inspect::execute(&exchange, args),
         Commands::Run(args) => run::execute(&exchange, args),

@@ -165,3 +165,28 @@ This stays:
 
 It does not replace `read`, `inspect`, `check`, or the durable exchange
 model.
+
+## V1 command and local state
+
+V1 uses:
+
+```bash
+./target/debug/plugboard notify
+```
+
+Tracking state lives next to the configured SQLite database:
+
+```text
+.plugboard/tracked-conversations.json
+```
+
+If a different `--database` path is used, the tracking file lives in the
+same directory as that database file.
+
+For v1, conversations become tracked when `plugboard publish` is used on
+a `*.request` topic. The helper records:
+
+* `conversation_id`
+* success topic
+* failure topic
+* `notified` flag

@@ -76,6 +76,7 @@ fn top_level_help_describes_topic_based_workflow() {
     assert!(stdout.contains("publish"));
     assert!(stdout.contains("read"));
     assert!(stdout.contains("check"));
+    assert!(stdout.contains("notify"));
     assert!(stdout.contains("request"));
     assert!(stdout.contains("long-running worker"));
 }
@@ -141,6 +142,16 @@ fn publish_and_read_help_are_concrete() {
     assert!(check_stdout.contains("conversation-based reads"));
     assert!(check_stdout.contains("--conversation-id"));
     assert!(check_stdout.contains("--json"));
+
+    let notify_help = Command::new(binary)
+        .args(["notify", "--help"])
+        .output()
+        .unwrap();
+    assert!(notify_help.status.success());
+    let notify_stdout = String::from_utf8_lossy(&notify_help.stdout);
+    assert!(notify_stdout.contains("tracked conversations"));
+    assert!(notify_stdout.contains("--once"));
+    assert!(notify_stdout.contains("--poll-seconds"));
 }
 
 #[test]
@@ -306,6 +317,33 @@ fn publish_emits_timestamped_human_identifiers_by_default() {
     assert!(first_line.contains("] published message_id="));
     assert!(first_line.contains("conversation_id="));
     assert!(first_line.contains("topic=review.request"));
+}
+
+#[test]
+fn publish_tracks_request_topic_conversation_locally() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let tracking = temp.path().join("tracked-conversations.json");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "ollama.request",
+            "hello",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&tracking).unwrap()).unwrap();
+    let tracked = &state["tracked"][0];
+    assert_eq!(tracked["success_topic"], "ollama.done");
+    assert_eq!(tracked["failure_topic"], "ollama.failed");
+    assert_eq!(tracked["notified"], false);
 }
 
 #[test]
@@ -1148,6 +1186,63 @@ fn check_can_emit_json_for_failure_reply() {
     assert_eq!(parsed["message_id"], reply_message_id);
     assert_eq!(parsed["topic"], "review.failed");
     assert_eq!(parsed["body"], "Needs tests");
+}
+
+#[test]
+fn notify_once_marks_terminal_conversation_as_notified() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let tracking = temp.path().join("tracked-conversations.json");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "ollama.request",
+            "hello",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+    let (message_id, conversation_id) = latest_message_for_topic(&database, "ollama.request");
+
+    let reply = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "ollama.done",
+            "ready",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(reply.status.success());
+
+    let output = Command::new(binary)
+        .env("PLUGBOARD_NOTIFY_BACKEND", "stderr")
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "notify",
+            "--once",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Ollama reply ready"));
+    assert!(stderr.contains(&conversation_id));
+    assert!(stderr.contains("ready"));
+
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&tracking).unwrap()).unwrap();
+    assert_eq!(state["tracked"][0]["notified"], true);
 }
 
 #[test]
