@@ -40,6 +40,47 @@ bd sync               # Sync with git
 
 Use 'bd' for task tracking
 
+## Timing and CLI Output Visibility
+
+When executing Plugboard commands, always display human-readable CLI
+output first.
+
+Rules:
+
+- Do not hide, summarize, or reorder CLI output lines.
+- Timestamped lines must be preserved exactly as emitted.
+- JSON output (`--json`) is for internal parsing only.
+- Plugboard core output should stay precise and unchanged.
+- Helper or presentation-layer output may render timestamps in a more
+  human-friendly local format.
+- User-facing output must remain human-readable.
+
+Pattern:
+
+1. Show CLI output verbatim.
+2. Then provide a short plain-text explanation.
+
+Example:
+
+```text
+[23:01:53] pending conversation_id=...
+Not yet.
+```
+
+Never do:
+
+```text
+Not yet.
+```
+
+Rationale:
+
+- Codex UI does not provide timestamps.
+- CLI output is the only reliable timing signal.
+- Async behavior must be observable to the operator.
+- Preserve raw Plugboard output when accuracy matters; use helper-layer
+  formatting rather than changing Rust core formatting.
+
 
 ## Ollama via Plugboard (interactive use)
 

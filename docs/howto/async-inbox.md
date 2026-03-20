@@ -153,7 +153,8 @@ The separate recent-inbox helper is:
 
 That helper shows recent replies from `ollama.done` and `ollama.failed`
 together. It is for inbox-style browsing, not for checking one specific
-stored async task.
+stored async task, and it renders reply timestamps in a friendlier local
+format for humans.
 
 Use `inspect` only when the normal topic or conversation view is not
 enough.

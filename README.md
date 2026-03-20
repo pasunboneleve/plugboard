@@ -219,7 +219,8 @@ Use `plugboard request` or `plugboard publish` to enqueue work. Use
 For the common Ollama demo path, `./scripts/check-ollama` is a separate
 inbox helper that shows recent replies from `ollama.done` and
 `ollama.failed` together. By default it shows the 10 most recent
-replies and is safe to run repeatedly.
+replies, formats timestamps for local human reading, and is safe to run
+repeatedly.
 
 That is different from prompt-level `check ollama`, which should use
 the stored `conversation_id` from the most recent async send and run:
