@@ -26,8 +26,6 @@ results later — all through plain text.
 <p align="center">
     <sub>Operators routing connections</sub>
     <sub>— an early “plugboard” for human communication.</sub>
-    <br>
-    <sub>Science Museum / SSPL.</sub>
 </p>
 
 It gives independent tools one small shared surface:
