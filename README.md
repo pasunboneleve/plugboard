@@ -226,11 +226,7 @@ That is different from prompt-level `check ollama`, which should use
 the stored `conversation_id` from the most recent async send and run:
 
 ```bash
-./target/debug/plugboard check \
-  --conversation-id <conversation-id> \
-  --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --json
+./scripts/check-ollama-conversation <conversation-id>
 ```
 
 If no stored async conversation is available, say so plainly rather
@@ -243,20 +239,19 @@ For agent use, the preferred async tracking path is:
 3. later check:
 
    ```bash
-   ./target/debug/plugboard check \
-     --conversation-id <conversation-id> \
-     --success-topic <success-topic> \
-     --failure-topic <failure-topic> \
-     --json
+   ./scripts/check-ollama-conversation <conversation-id>
    ```
 
 `conversation_id` is the primary retrieval handle. Topics are for
 routing; the conversation is the natural unit of meaning for one
 request/reply exchange.
 
-`check` is a thin helper over conversation-based reads. It tells you
-whether the conversation is still pending, has a terminal success reply,
-or has a terminal failure reply.
+For Ollama prompt-level usage, prefer the helper-layer script above.
+Reserve raw `plugboard check` for low-level/manual/debugging workflows.
+
+`plugboard check` itself is a thin helper over conversation-based reads.
+It tells you whether the conversation is still pending, has a terminal
+success reply, or has a terminal failure reply.
 
 When using `--json`, the intended pattern is:
 

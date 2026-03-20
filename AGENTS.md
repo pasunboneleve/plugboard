@@ -159,11 +159,7 @@ Use `message_id` as supporting detail.
 
 Later checks should prefer:
 
-./target/debug/plugboard check \
-  --conversation-id <conversation-id> \
-  --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --json
+./scripts/check-ollama-conversation <conversation-id>
 
 This is the preferred path over request-body matching.
 
@@ -209,11 +205,7 @@ You must execute this flow exactly:
 
 Later follow-up should prefer:
 
-./target/debug/plugboard check \
-  --conversation-id <conversation-id> \
-  --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --json
+./scripts/check-ollama-conversation <conversation-id>
 
 This is the non-blocking path. Use it when the user wants to continue
 working and check later.
@@ -259,13 +251,15 @@ Use the stored `conversation_id` from the most recent async
 
 Run:
 
-./target/debug/plugboard check \
-  --conversation-id <conversation-id> \
-  --success-topic ollama.done \
-  --failure-topic ollama.failed \
-  --json
+./scripts/check-ollama-conversation <conversation-id>
 
-Parse that JSON internally and answer in plain text:
+Use that helper for natural-language `check ollama`.
+
+Reserve direct `./target/debug/plugboard check ...` for low-level,
+manual, or debugging workflows, or when the user explicitly asks for
+the exact command.
+
+Read the helper output and answer in plain text:
 
 - `Not yet.`
 - `Yes — Albert Einstein.`

@@ -142,6 +142,15 @@ is the default meaning of “check Ollama”:
    - `Yes — <reply body>.`
    - `It failed: <failure body>`
 
+For natural-language Ollama usage, prefer the helper-layer path:
+
+```bash
+./scripts/check-ollama-conversation <conversation-id>
+```
+
+Reserve direct `plugboard check --conversation-id ...` for low-level,
+manual, or debugging use.
+
 Only use recent-reply browsing if the user explicitly asks for the
 Ollama inbox or recent replies.
 
@@ -212,11 +221,7 @@ heuristic and less reliable than using `message_id` or
 4. Later, check the exact exchange:
 
    ```bash
-   ./target/debug/plugboard check \
-     --conversation-id <conversation-id> \
-     --success-topic ollama.done \
-     --failure-topic ollama.failed \
-     --json
+   ./scripts/check-ollama-conversation <conversation-id>
    ```
 
 5. Report one of:
