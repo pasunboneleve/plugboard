@@ -24,6 +24,12 @@ pub enum PlugboardError {
     NotFound(String),
     #[error("invalid metadata argument `{input}`: expected KEY=VALUE with a non-empty key")]
     InvalidMetadataArgument { input: String },
+    #[error("message position must be zero or greater, got {position}")]
+    InvalidMessagePosition { position: i64 },
+    #[error("incremental read limit must be between 1 and {maximum}, got {limit}")]
+    InvalidReadLimit { limit: usize, maximum: usize },
+    #[error("incremental conversation reads require a conversation id")]
+    IncrementalReadRequiresConversation,
     #[error("metadata_json must be a JSON object when merging request metadata")]
     InvalidMetadataJsonObject,
     #[error("command must not be empty")]

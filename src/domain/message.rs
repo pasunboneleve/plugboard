@@ -10,6 +10,13 @@ pub struct Message {
     pub metadata_json: Option<String>,
 }
 
+/// A stored message paired with its durable, database-local insertion cursor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PositionedMessage {
+    pub position: i64,
+    pub message: Message,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewMessage {
     pub topic: String,

@@ -7,9 +7,9 @@ use std::time::Duration;
 use log::debug;
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 
-use crate::domain::{Claim, ClaimStatus, Message, NewMessage};
+use crate::domain::{Claim, ClaimStatus, Message, NewMessage, PositionedMessage};
 use crate::error::{PlugboardError, Result};
-use crate::exchange::Exchange;
+use crate::exchange::{Exchange, IncrementalExchange, MAX_INCREMENTAL_READ_LIMIT};
 use crate::notifier::{Notifier, SqliteFileNotifier};
 use crate::util::id::new_id;
 use crate::util::time::{add_seconds, format_timestamp, now_timestamp, now_utc};
@@ -121,6 +121,21 @@ impl SqliteExchange {
         Ok(())
     }
 
+    fn backfill_message_positions(connection: &Connection) -> Result<()> {
+        connection.execute(
+            "INSERT INTO message_positions (message_id)
+             SELECT messages.id
+             FROM messages
+             LEFT JOIN message_positions
+                 ON message_positions.message_id = messages.id
+             WHERE message_positions.message_id IS NULL
+             ORDER BY messages.created_at ASC, messages.id ASC",
+            [],
+        )?;
+
+        Ok(())
+    }
+
     fn transition_claim(&self, claim_id: &str, next_status: ClaimStatus) -> Result<Claim> {
         let mut connection = self.connection.borrow_mut();
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -169,15 +184,18 @@ impl SqliteExchange {
 
         let candidate = transaction
             .query_row(
-                "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
+                "SELECT messages.id, messages.topic, messages.body, messages.created_at,
+                        messages.parent_id, messages.conversation_id, messages.producer,
+                        messages.metadata_json
                  FROM messages
-                 WHERE topic = ?1
+                 JOIN message_positions ON message_positions.message_id = messages.id
+                 WHERE messages.topic = ?1
                  AND NOT EXISTS (
                      SELECT 1
                      FROM claims
                      WHERE claims.message_id = messages.id
                  )
-                 ORDER BY created_at ASC, id ASC
+                 ORDER BY message_positions.position ASC
                  LIMIT 1",
                 params![topic],
                 map_message,
@@ -234,9 +252,12 @@ impl SqliteExchange {
 
 impl Exchange for SqliteExchange {
     fn init(&self) -> Result<()> {
-        let connection = self.connection.borrow_mut();
-        connection.execute_batch(SCHEMA)?;
-        Self::ensure_claim_columns(&connection)?;
+        let mut connection = self.connection.borrow_mut();
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(SCHEMA)?;
+        Self::ensure_claim_columns(&transaction)?;
+        Self::backfill_message_positions(&transaction)?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -272,6 +293,11 @@ impl Exchange for SqliteExchange {
             ],
         )?;
 
+        transaction.execute(
+            "INSERT INTO message_positions (message_id) VALUES (?1)",
+            params![id],
+        )?;
+
         let stored = Self::load_message(&transaction, &id)?
             .ok_or_else(|| PlugboardError::NotFound(format!("message {id}")))?;
         transaction.commit()?;
@@ -282,10 +308,13 @@ impl Exchange for SqliteExchange {
     fn read_by_topic(&self, topic: &str) -> Result<Vec<Message>> {
         let connection = self.connection.borrow();
         let mut statement = connection.prepare(
-            "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
+            "SELECT messages.id, messages.topic, messages.body, messages.created_at,
+                    messages.parent_id, messages.conversation_id, messages.producer,
+                    messages.metadata_json
              FROM messages
-             WHERE topic = ?1
-             ORDER BY created_at ASC, id ASC",
+             JOIN message_positions ON message_positions.message_id = messages.id
+             WHERE messages.topic = ?1
+             ORDER BY message_positions.position ASC",
         )?;
 
         let rows = statement.query_map(params![topic], map_message)?;
@@ -296,10 +325,13 @@ impl Exchange for SqliteExchange {
     fn read_by_conversation(&self, conversation_id: &str) -> Result<Vec<Message>> {
         let connection = self.connection.borrow();
         let mut statement = connection.prepare(
-            "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
+            "SELECT messages.id, messages.topic, messages.body, messages.created_at,
+                    messages.parent_id, messages.conversation_id, messages.producer,
+                    messages.metadata_json
              FROM messages
-             WHERE conversation_id = ?1
-             ORDER BY created_at ASC, id ASC",
+             JOIN message_positions ON message_positions.message_id = messages.id
+             WHERE messages.conversation_id = ?1
+             ORDER BY message_positions.position ASC",
         )?;
 
         let rows = statement.query_map(params![conversation_id], map_message)?;
@@ -310,9 +342,12 @@ impl Exchange for SqliteExchange {
     fn list_messages(&self) -> Result<Vec<Message>> {
         let connection = self.connection.borrow();
         let mut statement = connection.prepare(
-            "SELECT id, topic, body, created_at, parent_id, conversation_id, producer, metadata_json
+            "SELECT messages.id, messages.topic, messages.body, messages.created_at,
+                    messages.parent_id, messages.conversation_id, messages.producer,
+                    messages.metadata_json
              FROM messages
-             ORDER BY created_at ASC, id ASC",
+             JOIN message_positions ON message_positions.message_id = messages.id
+             ORDER BY message_positions.position ASC",
         )?;
 
         let rows = statement.query_map([], map_message)?;
@@ -444,6 +479,47 @@ impl Exchange for SqliteExchange {
     }
 }
 
+impl IncrementalExchange for SqliteExchange {
+    fn read_conversation_after(
+        &self,
+        conversation_id: &str,
+        after_position: i64,
+        limit: usize,
+    ) -> Result<Vec<PositionedMessage>> {
+        if after_position < 0 {
+            return Err(PlugboardError::InvalidMessagePosition {
+                position: after_position,
+            });
+        }
+        if !(1..=MAX_INCREMENTAL_READ_LIMIT).contains(&limit) {
+            return Err(PlugboardError::InvalidReadLimit {
+                limit,
+                maximum: MAX_INCREMENTAL_READ_LIMIT,
+            });
+        }
+
+        let connection = self.connection.borrow();
+        let mut statement = connection.prepare(
+            "SELECT message_positions.position, messages.id, messages.topic, messages.body,
+                    messages.created_at, messages.parent_id, messages.conversation_id,
+                    messages.producer, messages.metadata_json
+             FROM message_positions
+             JOIN messages ON messages.id = message_positions.message_id
+             WHERE messages.conversation_id = ?1
+               AND message_positions.position > ?2
+             ORDER BY message_positions.position ASC
+             LIMIT ?3",
+        )?;
+
+        let rows = statement.query_map(
+            params![conversation_id, after_position, limit as i64],
+            map_positioned_message,
+        )?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+}
+
 fn map_message(row: &Row<'_>) -> rusqlite::Result<Message> {
     Ok(Message {
         id: row.get(0)?,
@@ -454,6 +530,22 @@ fn map_message(row: &Row<'_>) -> rusqlite::Result<Message> {
         conversation_id: row.get(5)?,
         producer: row.get(6)?,
         metadata_json: row.get(7)?,
+    })
+}
+
+fn map_positioned_message(row: &Row<'_>) -> rusqlite::Result<PositionedMessage> {
+    Ok(PositionedMessage {
+        position: row.get(0)?,
+        message: Message {
+            id: row.get(1)?,
+            topic: row.get(2)?,
+            body: row.get(3)?,
+            created_at: row.get(4)?,
+            parent_id: row.get(5)?,
+            conversation_id: row.get(6)?,
+            producer: row.get(7)?,
+            metadata_json: row.get(8)?,
+        },
     })
 }
 
@@ -483,9 +575,9 @@ mod tests {
     use super::SqliteExchange;
     use crate::domain::ClaimStatus;
     use crate::domain::NewMessage;
-    use crate::exchange::Exchange;
+    use crate::exchange::{Exchange, IncrementalExchange, MAX_INCREMENTAL_READ_LIMIT};
     use crate::util::time::{format_timestamp, now_utc};
-    use rusqlite::params;
+    use rusqlite::{Connection, params};
     use std::thread;
     use std::time::Duration;
 
@@ -528,6 +620,194 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn init_backfills_legacy_messages_in_their_previous_visible_order() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("plugboard.db");
+        let connection = Connection::open(&database).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE messages (
+                     id TEXT PRIMARY KEY,
+                     topic TEXT NOT NULL,
+                     body TEXT NOT NULL,
+                     created_at TEXT NOT NULL,
+                     parent_id TEXT REFERENCES messages(id),
+                     conversation_id TEXT NOT NULL,
+                     producer TEXT,
+                     metadata_json TEXT
+                 );
+                 INSERT INTO messages VALUES
+                     ('z-message', 'review.request', 'inserted first',
+                      '2026-01-01T00:00:00Z', NULL, 'conversation-1', NULL, NULL),
+                     ('a-message', 'review.done', 'inserted second',
+                      '2026-01-01T00:00:00Z', 'z-message', 'conversation-1', NULL, NULL);",
+            )
+            .unwrap();
+        drop(connection);
+
+        let exchange = SqliteExchange::open(&database).unwrap();
+        exchange.init().unwrap();
+
+        let messages = exchange
+            .read_conversation_after("conversation-1", 0, 10)
+            .unwrap();
+        let ids = messages
+            .iter()
+            .map(|stored| stored.message.id.as_str())
+            .collect::<Vec<_>>();
+        let positions = messages
+            .iter()
+            .map(|stored| stored.position)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["a-message", "z-message"]);
+        assert_eq!(positions, vec![1, 2]);
+        assert_eq!(
+            exchange
+                .read_by_conversation("conversation-1")
+                .unwrap()
+                .into_iter()
+                .map(|message| message.id)
+                .collect::<Vec<_>>(),
+            vec!["a-message", "z-message"]
+        );
+    }
+
+    #[test]
+    fn incremental_conversation_read_is_exclusive_bounded_and_conversation_scoped() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+
+        let root = exchange
+            .publish(NewMessage::new("prose.run.started", "start"))
+            .unwrap();
+        exchange
+            .publish(NewMessage::new("other.event", "unrelated"))
+            .unwrap();
+        let revision = exchange
+            .publish(NewMessage {
+                topic: "prose.candidate.created".into(),
+                body: "candidate".into(),
+                parent_id: Some(root.id.clone()),
+                conversation_id: None,
+                producer: Some("compiler".into()),
+                metadata_json: None,
+            })
+            .unwrap();
+
+        let first_page = exchange
+            .read_conversation_after(&root.conversation_id, 0, 1)
+            .unwrap();
+        assert_eq!(first_page.len(), 1);
+        assert_eq!(first_page[0].message.id, root.id);
+
+        let second_page = exchange
+            .read_conversation_after(&root.conversation_id, first_page[0].position, 1)
+            .unwrap();
+        assert_eq!(second_page.len(), 1);
+        assert_eq!(second_page[0].message.id, revision.id);
+        assert!(second_page[0].position > first_page[0].position);
+
+        let exhausted = exchange
+            .read_conversation_after(&root.conversation_id, second_page[0].position, 1)
+            .unwrap();
+        assert!(exhausted.is_empty());
+    }
+
+    #[test]
+    fn incremental_conversation_read_rejects_invalid_bounds() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+
+        let negative = exchange.read_conversation_after("conversation-1", -1, 1);
+        assert!(
+            negative
+                .unwrap_err()
+                .to_string()
+                .contains("zero or greater")
+        );
+
+        let zero = exchange.read_conversation_after("conversation-1", 0, 0);
+        assert!(zero.unwrap_err().to_string().contains("between 1 and 1000"));
+
+        let excessive =
+            exchange.read_conversation_after("conversation-1", 0, MAX_INCREMENTAL_READ_LIMIT + 1);
+        assert!(
+            excessive
+                .unwrap_err()
+                .to_string()
+                .contains("between 1 and 1000")
+        );
+    }
+
+    #[test]
+    fn message_positions_continue_monotonically_after_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("plugboard.db");
+        let conversation_id;
+
+        {
+            let exchange = SqliteExchange::open(&database).unwrap();
+            exchange.init().unwrap();
+            let message = exchange
+                .publish(NewMessage::new("prose.run.started", "start"))
+                .unwrap();
+            conversation_id = message.conversation_id;
+        }
+
+        let exchange = SqliteExchange::open(&database).unwrap();
+        exchange.init().unwrap();
+        exchange
+            .publish(NewMessage {
+                topic: "prose.run.resumed".into(),
+                body: "resume".into(),
+                parent_id: None,
+                conversation_id: Some(conversation_id.clone()),
+                producer: None,
+                metadata_json: None,
+            })
+            .unwrap();
+
+        let messages = exchange
+            .read_conversation_after(&conversation_id, 0, 10)
+            .unwrap();
+        assert_eq!(
+            messages
+                .iter()
+                .map(|stored| stored.position)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+    }
+
+    #[test]
+    fn publish_rolls_back_message_when_position_assignment_fails() {
+        let exchange = SqliteExchange::open_memory().unwrap();
+        exchange.init().unwrap();
+        exchange
+            .connection
+            .borrow()
+            .execute_batch(
+                "CREATE TRIGGER reject_message_position
+                 BEFORE INSERT ON message_positions
+                 BEGIN
+                     SELECT RAISE(FAIL, 'position rejected');
+                 END;",
+            )
+            .unwrap();
+
+        let result = exchange.publish(NewMessage::new("prose.run.started", "start"));
+
+        assert!(result.is_err());
+        let message_count: i64 = exchange
+            .connection
+            .borrow()
+            .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(message_count, 0);
     }
 
     #[test]
