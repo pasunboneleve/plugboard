@@ -19,4 +19,5 @@ How-to guides:
 * [Local model workflow](howto/local-model-workflow.md)
 * [Codex to Gemini workflow](howto/codex-to-gemini.md)
 * [Completion notifications](howto/completion-notifications.md)
+* [Incremental conversation reads](howto/incremental-conversation-reads.md)
 * [Measure local latency](howto/measure-latency.md)

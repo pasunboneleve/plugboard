@@ -106,6 +106,9 @@ fn publish_and_read_help_are_concrete() {
     assert!(read_stdout.contains("already published to the exchange"));
     assert!(read_stdout.contains("tab-separated"));
     assert!(read_stdout.contains("--conversation-id"));
+    assert!(read_stdout.contains("--after-position"));
+    assert!(read_stdout.contains("--limit"));
+    assert!(read_stdout.contains("--json"));
 
     let request_help = Command::new(binary)
         .args(["request", "--help"])
@@ -195,6 +198,116 @@ fn read_supports_conversation_id_alias() {
     let stdout = String::from_utf8_lossy(&read.stdout);
     assert!(stdout.contains("review.request"));
     assert!(stdout.contains("hello"));
+}
+
+#[test]
+fn read_pages_a_conversation_as_ndjson() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let publish = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "prose.run.started",
+            "start",
+        ])
+        .output()
+        .unwrap();
+    assert!(publish.status.success());
+
+    let connection = Connection::open(&database).unwrap();
+    let (message_id, conversation_id): (String, String) = connection
+        .query_row(
+            "SELECT id, conversation_id FROM messages LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    drop(connection);
+
+    let follow_up = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "publish",
+            "prose.candidate.created",
+            "candidate",
+            "--parent-id",
+            &message_id,
+            "--conversation-id",
+            &conversation_id,
+        ])
+        .output()
+        .unwrap();
+    assert!(follow_up.status.success());
+
+    let first = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--conversation-id",
+            &conversation_id,
+            "--after-position",
+            "0",
+            "--limit",
+            "1",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(first.status.success());
+    let first_json: serde_json::Value = serde_json::from_slice(first.stdout.trim_ascii()).unwrap();
+    assert_eq!(first_json["topic"], "prose.run.started");
+    assert_eq!(first_json["conversation_id"], conversation_id);
+    let cursor = first_json["position"].as_i64().unwrap();
+
+    let second = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--conversation-id",
+            first_json["conversation_id"].as_str().unwrap(),
+            "--after-position",
+            &cursor.to_string(),
+            "--limit",
+            "1",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(second.status.success());
+    let second_json: serde_json::Value =
+        serde_json::from_slice(second.stdout.trim_ascii()).unwrap();
+    assert_eq!(second_json["topic"], "prose.candidate.created");
+    assert!(second_json["position"].as_i64().unwrap() > cursor);
+}
+
+#[test]
+fn incremental_read_flags_require_ndjson_output() {
+    let temp = tempfile::tempdir().unwrap();
+    let database = temp.path().join("plugboard.db");
+    let binary = env!("CARGO_BIN_EXE_plugboard");
+
+    let output = Command::new(binary)
+        .args([
+            "--database",
+            database.to_str().unwrap(),
+            "read",
+            "--conversation-id",
+            "conversation-1",
+            "--after-position",
+            "0",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--json"));
 }
 
 #[test]
@@ -1226,12 +1339,7 @@ fn notify_once_marks_terminal_conversation_as_notified() {
 
     let output = Command::new(binary)
         .env("PLUGBOARD_NOTIFY_BACKEND", "stderr")
-        .args([
-            "--database",
-            database.to_str().unwrap(),
-            "notify",
-            "--once",
-        ])
+        .args(["--database", database.to_str().unwrap(), "notify", "--once"])
         .output()
         .unwrap();
     assert!(output.status.success());

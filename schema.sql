@@ -9,6 +9,11 @@ CREATE TABLE IF NOT EXISTS messages (
     metadata_json TEXT
 );
 
+CREATE TABLE IF NOT EXISTS message_positions (
+    position INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL UNIQUE REFERENCES messages(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_topic_created_at
     ON messages(topic, created_at);
 

@@ -46,7 +46,8 @@ The worker maps the outcome into follow-up topics and claim status.
 
 ## Storage model
 
-Plugboard uses SQLite at `.plugboard/plugboard.db` by default.
+Plugboard uses [SQLite](https://sqlite.org/) at
+`.plugboard/plugboard.db` by default.
 
 SQLite is the source of truth for:
 
@@ -54,7 +55,7 @@ SQLite is the source of truth for:
 * claims
 * conversation history
 
-The schema has two durable entities:
+The schema has three durable entities:
 
 ### Messages
 
@@ -71,6 +72,23 @@ Fields in use today:
 
 If a message does not specify `conversation_id`, the exchange uses the
 message id. Follow-up messages inherit the parent conversation.
+
+### Message positions
+
+Each message has one database-local insertion position in a separate
+`message_positions` table. The position is an exclusive high-water-mark
+cursor: position zero starts at the beginning, and a later read asks for
+positions greater than the last one it received.
+
+Positions increase across all conversations in one database and are never
+reused. They are not portable between databases and do not encode wall-clock
+time. Keeping them separate preserves the public message record while giving
+incremental consumers a stable order.
+
+When Plugboard opens a database created before positions existed, it assigns
+positions once in the history's previous visible order: `created_at`, then
+`id`. Publishing a new message and assigning its position happen in the same
+transaction.
 
 ### Claims
 
@@ -153,6 +171,10 @@ success or failure reply exists yet.
 
 This is the normal consumption command. It reads messages by topic or by
 conversation.
+
+Conversation reads can also be bounded and resumed with `--after-position`
+and `--limit`. Adding `--json` emits one complete JSON object per line. See
+[Incremental conversation reads](howto/incremental-conversation-reads.md).
 
 ### `plugboard inspect`
 

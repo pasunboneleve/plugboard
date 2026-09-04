@@ -2,7 +2,7 @@ pub mod sqlite;
 
 use std::time::Duration;
 
-use crate::domain::{Claim, Message, NewMessage};
+use crate::domain::{Claim, Message, NewMessage, PositionedMessage};
 use crate::error::Result;
 use crate::notifier::WaitTicket;
 
@@ -35,4 +35,20 @@ pub trait Exchange {
     fn complete_claim(&self, claim_id: &str) -> Result<Claim>;
     fn fail_claim(&self, claim_id: &str) -> Result<Claim>;
     fn timeout_claim(&self, claim_id: &str) -> Result<Claim>;
+}
+
+pub const MAX_INCREMENTAL_READ_LIMIT: usize = 1_000;
+
+/// Additive cursor reads for consumers that follow an active conversation.
+///
+/// Positions are exclusive, database-local cursors. Passing zero starts at the
+/// beginning of a conversation. Implementations must return insertion order and
+/// must reject unbounded or invalid limits rather than silently clamping them.
+pub trait IncrementalExchange {
+    fn read_conversation_after(
+        &self,
+        conversation_id: &str,
+        after_position: i64,
+        limit: usize,
+    ) -> Result<Vec<PositionedMessage>>;
 }
